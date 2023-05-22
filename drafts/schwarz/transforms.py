@@ -21,7 +21,7 @@ def channelwise_norm(x, eps=1e-8):
 
 def _clamp(x, dev_val):
     """input: normalized"""
-    return torch.clamp(x, dev_val, dev_val)
+    return torch.clamp(x, -dev_val, dev_val)
 
 def toimshape(x):
     return x.unsqueeze(0)
