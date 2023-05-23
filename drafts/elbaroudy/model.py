@@ -311,7 +311,8 @@ class MaskedAutoencoderViT(pl.LightningModule):
     def training_step(self, batch):
         imgs, targets = batch
         loss, _, _ = self(imgs)
-        self.log("loss", loss, prog_bar=True)
+        
+        self.log("loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     
@@ -339,6 +340,6 @@ class MaskedAutoencoderViT(pl.LightningModule):
         loss = self.forward_loss(imgs, pred, mask)
         return loss, pred, mask
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3 * (1/256), betas=(0.9, 0.95))
         return optimizer
 
