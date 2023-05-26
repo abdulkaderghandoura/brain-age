@@ -97,8 +97,8 @@ def preprocessed_data(datasets_path, dataset_names, sfreq, references, filters):
     hbn_formatter = get_hbn_formatter(datasets_path)
 
     # Set the number of worker processes (adjust according to your system)
-    # num_processes = multiprocessing.cpu_count()
     num_processes = 32
+    # num_processes = multiprocessing.cpu_count()
 
     with multiprocessing.Pool(processes=num_processes) as pool:
         for dataset_name in dataset_names:
