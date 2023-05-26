@@ -1,3 +1,5 @@
+# TODO Edit this multithreading code to read the whole dataset
+
 import tarfile
 import multiprocessing
 
