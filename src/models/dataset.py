@@ -11,7 +11,7 @@ class EEGDataset(Dataset):
 
         assert split in ['train', 'val', 'test']
         dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed')
-        split_path = os.path.join(dataset_path, dataset_name + '.txt')
+        split_path = os.path.join(dataset_path, dataset_name + '_{}'.format(split) + '.txt')
         with open(split_path, 'r') as in_file:
             lines = in_file.readlines()
         self.data_paths = [line.strip() for line in lines]
@@ -25,10 +25,13 @@ class EEGDataset(Dataset):
         with open(data_path, 'rb') as in_file:
             eeg_npy = np.load(in_file)
 
-        data = eeg_npy[:, :self.sfreq * self.len_in_sec].astype(np.float32)
-        data_with_channel = torch.unsqueeze(torch.tensor(data), 0)
-        self.data = torch.unsqueeze(data_with_channel, 0)
-        return self.data[index].to(self.device)
+        # data = eeg_npy[:, :self.sfreq * self.len_in_sec].astype(np.float32)
+        data = eeg_npy.astype(np.float32)
+        # data_with_channel = torch.unsqueeze(torch.tensor(data), 0)
+        self.data = torch.unsqueeze(torch.tensor(data), 0)
+
+        # print(self.data.shape)
+        return self.data
 
 
 # if __name__ == "__main__":
