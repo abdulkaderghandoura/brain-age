@@ -159,6 +159,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
         self.norm_pix_loss = norm_pix_loss
 
         self.initialize_weights()
+        self.save_hyperparameters()
 
     def initialize_weights(self):
         # initialization
@@ -298,12 +299,18 @@ class MaskedAutoencoderViT(pl.LightningModule):
         return x
 
     def training_step(self, batch):
-        imgs, targets = batch
-        loss, _, _ = self(imgs)
+        eegs = batch
+        loss, _, _ = self(eegs)
         
-        self.log("loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
-
+    
+    def validation_step(self, batch, batch_idx): 
+        eegs = batch
+        loss, _, _ = self(eegs)
+        
+        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        return loss
     
     def forward_loss(self, imgs, pred, mask):
         """
@@ -328,7 +335,8 @@ class MaskedAutoencoderViT(pl.LightningModule):
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
         return loss, pred, mask
+
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3 * (1/256), betas=(0.9, 0.95))
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
         return optimizer
 
