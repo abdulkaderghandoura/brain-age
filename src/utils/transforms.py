@@ -14,10 +14,10 @@ def totensor(x):
     return torch.tensor(x).float()
 
 def channelwide_norm(x, eps=1e-8):
-    return (x - x.mean()) / x.std()
+    return (x - x.mean()) / (eps + x.std())
 
 def channelwise_norm(x, eps=1e-8):
-    return (x - x.mean(-1, keepdims=True)) / x.std(-1, keepdims=True)
+    return (x - x.mean(-1, keepdims=True)) / (eps + x.std(-1, keepdims=True))
 
 def _clamp(x, dev_val):
     """input: normalized"""
