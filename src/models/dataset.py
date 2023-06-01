@@ -4,10 +4,11 @@ import torch
 from torch.utils.data import Dataset
 
 class EEGDataset(Dataset):
-    def __init__(self, dataset_name, split, sfreq=135, len_in_sec=30):
+    def __init__(self, dataset_name, split, transforms, sfreq=135, len_in_sec=30):
         self.sfreq = sfreq
         self.len_in_sec = len_in_sec
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.transforms = transforms
 
         assert split in ['train', 'val', 'test']
         dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed')

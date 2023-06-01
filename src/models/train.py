@@ -24,6 +24,16 @@ def get_args_parser():
 
     parser.add_argument('--dataset', default='bap', type=str, 
                         help='dataset for training eg. bap, hbn, lemon')
+    
+    parser.add_argument('--standardization', default='channelwise', type=str,
+                       help='standardization applied to the model input, e.g. channelwise, channelwide')
+    
+    parser.add_argument('--crop_len', default=4050, type=int,
+                       help='# of time samples of the random crop applied to the model input')
+    
+    parser.add_argument('--clamp_val', default=20, type=float, 
+                        help='the input to the model will be limited between (-clamp_val, clamp_val)')
+    
     # model parameters 
     parser.add_argument('--input_time', default=30, type=int,
                         help='number of seconds in the input')
@@ -49,6 +59,7 @@ def main(args):
     # using a CUDA device ('NVIDIA A40') that has Tensor Cores. 
     # To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')`
     # which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+
     
     torch.set_float32_matmul_precision('medium')
 
@@ -58,11 +69,22 @@ def main(args):
     model = MaskedAutoencoderViT(img_size=(65, args.input_time * 135), \
                                         patch_size=(65, args.patch_size), \
                                         in_chans=1)
+    
+    import sys
+    sys.path.append('~/brain-age/src/utils')
+    from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop
+    if args.standardization == "channelwise":
+        norm = channelwise_norm
+    elif args.standardization == "channelwide":
+        norm = channelwide_norm 
+    randomcrop = partial(_randomcrop, seq_len=args.crop_len)
+    clamp = partial(_clamp, dev_val=args.clamp_val)
+    transforms = partial(_compose, transforms=[randomcrop, norm, clamp])
 
-    train_dataset = EEGDataset(args.dataset, 'train')
+    train_dataset = EEGDataset(args.dataset, 'train', transforms=transforms)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
-    val_dataset = EEGDataset(args.dataset, 'val')
+    val_dataset = EEGDataset(args.dataset, 'val', transforms=transforms)
     validation_dataloader =  DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
 
