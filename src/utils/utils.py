@@ -10,3 +10,10 @@ def get_subject_id(file_path):
         return dirs[dirs.index('rest') + 1]
     elif dataset_name == 'bap':
         return file_name.split('.')[-3]
+
+
+def get_dirs(dir_path):
+    # Split datasets_path into directories
+    dirs = dir_path.split('/' if '/' in dir_path else '\\')
+    dirs = [item for item in dirs if item != '']
+    return dirs
