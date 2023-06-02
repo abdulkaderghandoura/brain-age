@@ -6,7 +6,11 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
 import wandb
+from functools import partial
 
+import sys
+sys.path.append('../utils/')
+from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, _compose
 from dataset import EEGDataset
 from mae import MaskedAutoencoderViT
 
@@ -70,25 +74,22 @@ def main(args):
                                         patch_size=(65, args.patch_size), \
                                         in_chans=1)
     
-    import sys
-    sys.path.append('~/brain-age/src/utils')
-    from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop
     if args.standardization == "channelwise":
         norm = channelwise_norm
     elif args.standardization == "channelwide":
         norm = channelwide_norm 
     randomcrop = partial(_randomcrop, seq_len=args.crop_len)
     clamp = partial(_clamp, dev_val=args.clamp_val)
-    transforms = partial(_compose, transforms=[randomcrop, norm, clamp])
+    composed_transforms = partial(_compose, transforms=[randomcrop, norm, clamp])
 
-    train_dataset = EEGDataset(args.dataset, 'train', transforms=transforms)
+    train_dataset = EEGDataset(args.dataset, 'train', transforms=composed_transforms)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
-    val_dataset = EEGDataset(args.dataset, 'val', transforms=transforms)
+    val_dataset = EEGDataset(args.dataset, 'val', transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
 
-    # wandb.login()
+    wandb.login()
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
                                     save_dir="/wandb/", log_model=False)
     
