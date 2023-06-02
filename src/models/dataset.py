@@ -1,11 +1,10 @@
 import os
 import numpy as np
 import torch
-import random
 from torch.utils.data import Dataset
 
 class EEGDataset(Dataset):
-    def __init__(self, dataset_name, split, transforms, sfreq=135, len_in_sec=30):
+    def __init__(self, dataset_names, splits, transforms, sfreq=135, len_in_sec=30):
         self.sfreq = sfreq
         self.len_in_sec = len_in_sec
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -23,7 +22,6 @@ class EEGDataset(Dataset):
                     lines = in_file.readlines()
                 file_paths.extend([line.strip() for line in lines])
     
-        random.shuffle(file_paths)
         self.data_paths = file_paths
 
 
@@ -41,7 +39,6 @@ class EEGDataset(Dataset):
         # data_with_channel = torch.unsqueeze(torch.tensor(data), 0)
         self.data = torch.unsqueeze(torch.tensor(data), 0)
 
-        # print(self.data.shape)
         return self.data
 
 
