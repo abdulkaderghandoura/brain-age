@@ -25,7 +25,7 @@ def get_args_parser():
                         help='Batch size')
     parser.add_argument('--epochs', default=400, type=int)
 
-    parser.add_argument('--dataset', default='bap', type=str, 
+    parser.add_argument('--dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
     
     parser.add_argument('--standardization', default='channelwise', type=str,
@@ -81,10 +81,10 @@ def main(args):
     clamp = partial(_clamp, dev_val=args.clamp_val)
     composed_transforms = partial(_compose, transforms=[randomcrop, norm, clamp])
 
-    train_dataset = EEGDataset(args.dataset, 'train', transforms=composed_transforms)
+    train_dataset = EEGDataset(args.dataset, ['train'], transforms=composed_transforms)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
-    val_dataset = EEGDataset(args.dataset, 'val', transforms=composed_transforms)
+    val_dataset = EEGDataset(args.dataset, ['val'], transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
 

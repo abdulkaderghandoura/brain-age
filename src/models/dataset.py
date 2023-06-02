@@ -37,9 +37,9 @@ class EEGDataset(Dataset):
         # data = eeg_npy[:, :self.sfreq * self.len_in_sec].astype(np.float32)
         data = eeg_npy.astype(np.float32)
         # data_with_channel = torch.unsqueeze(torch.tensor(data), 0)
-        self.data = torch.unsqueeze(torch.tensor(data), 0)
+        data = torch.unsqueeze(torch.tensor(data), 0)
 
-        return self.data
+        return self.transforms(data)
 
 
 if __name__ == "__main__":
