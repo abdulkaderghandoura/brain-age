@@ -1,20 +1,30 @@
 import os
 import numpy as np
 import torch
+import random
 from torch.utils.data import Dataset
 
 class EEGDataset(Dataset):
-    def __init__(self, dataset_name, split, sfreq=135, len_in_sec=30):
+    def __init__(self, dataset_names, splits, sfreq=135, len_in_sec=30):
         self.sfreq = sfreq
         self.len_in_sec = len_in_sec
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-        assert split in ['train', 'val', 'test']
-        dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed')
-        split_path = os.path.join(dataset_path, dataset_name + '_{}'.format(split) + '.txt')
-        with open(split_path, 'r') as in_file:
-            lines = in_file.readlines()
-        self.data_paths = [line.strip() for line in lines]
+        assert all(split in ['train', 'val', 'test'] for split in splits)
+        assert all(dataset_name in ['hbn', 'bap'] for dataset_name in dataset_names)
+
+        file_paths = list()
+        for dataset_name in dataset_names:
+            dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed')
+            for split in splits:
+                split_path = os.path.join(dataset_path, dataset_name + '_{}'.format(split) + '.txt')
+                with open(split_path, 'r') as in_file:
+                    lines = in_file.readlines()
+                file_paths.extend([line.strip() for line in lines])
+    
+        random.shuffle(file_paths)
+        self.data_paths = file_paths
+
 
     def __len__(self):
         return len(self.data_paths)
@@ -34,6 +44,6 @@ class EEGDataset(Dataset):
         return self.data
 
 
-# if __name__ == "__main__":
-#     eeg_dataset = EEGDataset('bap', 'train')
-#     print(len(eeg_dataset[0]))
+if __name__ == "__main__":
+    eeg_dataset = EEGDataset(['bap', 'hbn'], ['train', 'val', 'test'])
+    print(len(eeg_dataset))
