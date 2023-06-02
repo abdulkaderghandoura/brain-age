@@ -48,13 +48,13 @@ def preprocess_file(file_path, dataset_name, hbn_formatter, new_file_path=None, 
         eeg_obj = eeg_obj.notch_filter(freqs=filters['nf'], notch_widths=0.5, method='spectrum_fit', verbose=False)
     if 'lpf' in filters and 'hpf' in filters:
         # Apply a band-pass filter to the raw data
-        eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=filters['lpf'], fir_design='firwin', verbose=False)
+        eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=filters['lpf'], fir_design='firwin', h_trans_bandwidth=5, verbose=False)
     elif 'lpf' in filters:
         # Apply a low-pass filter to the raw data
-        eeg_obj = eeg_obj.filter(l_freq=None, h_freq=filters['lpf'], fir_design='firwin', verbose=False)
+        eeg_obj = eeg_obj.filter(l_freq=None, h_freq=filters['lpf'], fir_design='firwin', h_trans_bandwidth=5, verbose=False)
     elif 'hpf' in filters:
         # Apply a high-pass filter to the raw data
-        eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=None, fir_design='firwin', verbose=False)
+        eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=None, fir_design='firwin', h_trans_bandwidth=5, verbose=False)
 
     if sfreq is not None:
         eeg_obj = eeg_obj.resample(sfreq=sfreq, verbose=False)
@@ -85,8 +85,8 @@ def preprocessed_data(datasets_path, dataset_names, sfreq, references, filters):
     paths_list = list()
 
     # Set the number of worker processes (adjust according to your system)
-    # num_processes = 32
-    num_processes = multiprocessing.cpu_count()
+    num_processes = 32
+    # num_processes = multiprocessing.cpu_count()
 
     with multiprocessing.Pool(processes=num_processes) as pool:
         for dataset_name in dataset_names:
