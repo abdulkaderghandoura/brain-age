@@ -5,10 +5,11 @@ import random
 from torch.utils.data import Dataset
 
 class EEGDataset(Dataset):
-    def __init__(self, dataset_names, splits, sfreq=135, len_in_sec=30):
+    def __init__(self, dataset_name, split, transforms, sfreq=135, len_in_sec=30):
         self.sfreq = sfreq
         self.len_in_sec = len_in_sec
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.transforms = transforms
 
         assert all(split in ['train', 'val', 'test'] for split in splits)
         assert all(dataset_name in ['hbn', 'bap'] for dataset_name in dataset_names)
