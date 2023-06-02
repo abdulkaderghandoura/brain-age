@@ -118,6 +118,10 @@ def split_data(datasets_path, config, sfreq=135, len_in_sec=30):
         n_val   = int((p_val / 100) * n_files)
         n_test  = int((p_test / 100) * n_files)
 
+        # Set the seed
+        seed_value = 42
+        random.seed(seed_value)
+
         # Shuffle the list of paths
         random.shuffle(file_paths)
 
