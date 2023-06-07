@@ -114,6 +114,10 @@ def interpolate_pos_embed(model, checkpoint_model):
             
 from timm.models.vision_transformer import PatchEmbed, Block
 import lightning.pytorch as pl
+
+import matplotlib.pyplot as plt 
+
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 class MaskedAutoencoderViT(pl.LightningModule):
     """ Masked Autoencoder with VisionTransformer backbone
     """
@@ -307,11 +311,15 @@ class MaskedAutoencoderViT(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx): 
         eegs = batch
-        loss, _, _ = self(eegs)
+        self.log("EEG std", (eegs[0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        loss, pred, _ = self(eegs)
+        target = self.patchify(eegs)
         
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("pred std", (pred[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("target std", (target[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
-    
+
     def forward_loss(self, imgs, pred, mask):
         """
         imgs: [N, 3, H, W]
@@ -324,6 +332,10 @@ class MaskedAutoencoderViT(pl.LightningModule):
             var = target.var(dim=-1, keepdim=True)
             target = (target - mean) / (var + 1.e-6)**.5
 
+            mean = pred.mean(dim=-1, keepdim=True)
+            var = pred.var(dim=-1, keepdim=True)
+            pred = (pred - mean) / (var + 1.e-6)**.5
+        
         loss = (pred - target) ** 2
         loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
 
@@ -338,5 +350,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
-        return optimizer
+        # return optimizer
+        scheduler = CosineAnnealingWarmRestarts(optimizer, 400)
+        return [optimizer], [scheduler]
 

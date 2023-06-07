@@ -4,7 +4,7 @@ import torch
 import lightning.pytorch as pl
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
 import wandb
 from functools import partial
 import sys
@@ -13,15 +13,15 @@ from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, 
 from dataset import EEGDataset
 from mae import MaskedAutoencoderViT
 
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
-
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
+import numpy as np
 # torch.cuda.empty_cache() 
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE training', add_help=False)
     parser.add_argument('--experiment_name', default='mae_batch_training_EEG_AdamW_optim')
     
-    parser.add_argument('--batch_size', default=32, type=int,
+    parser.add_argument('--batch_size', default=256, type=int,
                         help='Batch size')
     parser.add_argument('--epochs', default=400, type=int)
 
@@ -41,7 +41,7 @@ def get_args_parser():
     parser.add_argument('--input_time', default=30, type=int,
                         help='number of seconds in the input')
 
-    parser.add_argument('--patch_size', default=90, type=int,
+    parser.add_argument('--patch_size', default=90, type=int, # number of patches = 30s * 135 / 90 (in the case we are using patch_size[0] = 65)
                         help='patch input size')
     
     parser.add_argument('--device', default='cuda:0',
@@ -49,7 +49,7 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
 
     # to avoid a bottleneck 256 which is the number of cpus on the machine
-    parser.add_argument('--num_workers', default=256, type=int, 
+    parser.add_argument('--num_workers', default=8, type=int, 
                         help='number of workers for the dataloaders')
     #logging
     
@@ -68,10 +68,22 @@ def main(args):
 
     seed = args.seed 
     torch.manual_seed(seed)
+    np.random.seed(seed)
+
     #size of the input = # of seconds * sampling frequency 
     model = MaskedAutoencoderViT(img_size=(65, args.input_time * 135), \
                                         patch_size=(65, args.patch_size), \
-                                        in_chans=1)
+                                        in_chans=1, 
+                                        embed_dim=384, 
+                                        depth=3, 
+                                        num_heads=6, 
+                                        decoder_embed_dim=256, 
+                                        decoder_depth=6, 
+                                        decoder_num_heads=8,
+                                        mlp_ratio=4, 
+                                        norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
+                                        # norm_pix_loss=True
+                                        )
     
     if args.standardization == "channelwise":
         norm = channelwise_norm
@@ -79,37 +91,57 @@ def main(args):
         norm = channelwide_norm 
     randomcrop = partial(_randomcrop, seq_len=args.crop_len)
     clamp = partial(_clamp, dev_val=args.clamp_val)
-    composed_transforms = partial(_compose, transforms=[randomcrop, norm, clamp])
+    composed_transforms = partial(_compose, transforms=[
+                                                        # randomcrop, 
+                                                        norm, 
+                                                        clamp
+                                                        ])
 
-    train_dataset = EEGDataset(args.dataset, 'train', transforms=composed_transforms)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
-    val_dataset = EEGDataset(args.dataset, 'val', transforms=composed_transforms)
-    validation_dataloader =  DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
+    train_dataset = EEGDataset([args.dataset], ['train'], transforms=composed_transforms)
+    train_dataloader = DataLoader(train_dataset, 
+                                batch_size=args.batch_size, 
+                                num_workers=args.num_workers, 
+                                pin_memory=True, 
+                                shuffle=True)
+
+    val_dataset = EEGDataset([args.dataset], ['val'], transforms=composed_transforms)
+    validation_dataloader =  DataLoader(val_dataset, 
+                                        batch_size=args.batch_size, 
+                                        num_workers=args.num_workers, 
+                                        pin_memory=True, 
+                                        # shuffle=True
+                                        )
 
 
     wandb.login()
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
-                                    save_dir="/wandb/", log_model=False)
+                                    save_dir="wandb/", log_model=False)
     
-    early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=0.00, patience=25, verbose=False, mode="max")
+    # early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
 
     checkpoint_callback = ModelCheckpoint(
         monitor='val_loss',  # Metric to monitor for saving the best model
-        filename='best_model_{epoch:02d}-{val_loss:.4f}',  # Filename pattern for saved models
+        filename='best_model',  # Filename pattern for saved models
         save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
         mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
         dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
         save_last=True
     )
+    lr_monitor = LearningRateMonitor(logging_interval='epoch')
+
 
     trainer = pl.Trainer(
-                        # overfit_batches=1.0,
-                        callbacks=[checkpoint_callback, early_stop_callback], 
+                        # overfit_batches=1,
+                        devices=[0], 
+                        callbacks=[lr_monitor, 
+                        checkpoint_callback, 
+                        # early_stop_callback
+                        ], 
                         max_epochs=args.epochs, 
                         accelerator="gpu", 
                         logger=logger,
-                        precision="bf16-mixed"
+                        precision="bf16-mixed", 
                         )
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=validation_dataloader)
     wandb.finish()
