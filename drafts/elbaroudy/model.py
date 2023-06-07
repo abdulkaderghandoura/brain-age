@@ -327,7 +327,8 @@ class MaskedAutoencoderViT(pl.LightningModule):
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)
             target = (target - mean) / (var + 1.e-6)**.5
-
+        print(pred.shape)
+        print(target.shape)
         loss = (pred - target) ** 2
         loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
 
@@ -338,6 +339,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
+        
         return loss, pred, mask
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3 * (1/256), betas=(0.9, 0.95))
