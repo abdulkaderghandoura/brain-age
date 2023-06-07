@@ -25,7 +25,7 @@ def get_args_parser():
                         help='Batch size')
     parser.add_argument('--epochs', default=400, type=int)
 
-    parser.add_argument('--dataset', default='bap', type=str, 
+    parser.add_argument('--dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
     
     parser.add_argument('--standardization', default='channelwise', type=str,
