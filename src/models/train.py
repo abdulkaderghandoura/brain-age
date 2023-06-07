@@ -51,6 +51,23 @@ def get_args_parser():
     # to avoid a bottleneck 256 which is the number of cpus on the machine
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='number of workers for the dataloaders')
+    
+    parser.add_argument('--embed_dim', default=384, type=int, 
+                        help='embedding dimension of the encoder')
+    parser.add_argument('--depth', default=3, type=int, 
+                        help='the number of blocks of the encoder')
+    parser.add_argument('--num_heads', default=6, type=int, 
+                        help='the number of attention heads of the encoder')
+    parser.add_argument('--decoder_embed_dim', default=256, type=int, 
+                        help='the embedding dimension of the decoder')
+    parser.add_argument('--decoder_depth', default=2, type=int, 
+                        help='the number of blocks of the decoder')
+    parser.add_argument('--decoder_num_heads', default=8, type=int, 
+                    help='number of attention heads of the decoder')
+    parser.add_argument('--mlp_ratio', default=4, type=int, 
+                        help='ratio of mlp hidden dim to embedding dim')
+    
+    
     #logging
     
 
@@ -74,13 +91,13 @@ def main(args):
     model = MaskedAutoencoderViT(img_size=(65, args.input_time * 135), \
                                         patch_size=(65, args.patch_size), \
                                         in_chans=1, 
-                                        embed_dim=384, 
-                                        depth=3, 
-                                        num_heads=6, 
-                                        decoder_embed_dim=256, 
-                                        decoder_depth=6, 
-                                        decoder_num_heads=8,
-                                        mlp_ratio=4, 
+                                        embed_dim=args.embed_dim, 
+                                        depth=args.depth, 
+                                        num_heads=args.num_heads, 
+                                        decoder_embed_dim=args.decoder_embed_dim, 
+                                        decoder_depth=args.decoder_depth, 
+                                        decoder_num_heads=args.decoder_num_heads,
+                                        mlp_ratio=args.mlp_ratio, 
                                         norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
                                         # norm_pix_loss=True
                                         )
@@ -98,14 +115,14 @@ def main(args):
                                                         ])
 
 
-    train_dataset = EEGDataset([args.dataset], ['train'], transforms=composed_transforms)
+    train_dataset = EEGDataset(args.dataset, ['train'], transforms=composed_transforms)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset([args.dataset], ['val'], transforms=composed_transforms)
+    val_dataset = EEGDataset(args.dataset, ['val'], transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers, 
