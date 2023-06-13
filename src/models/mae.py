@@ -117,9 +117,12 @@ import lightning.pytorch as pl
 
 import matplotlib.pyplot as plt 
 
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+# from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
+
 class MaskedAutoencoderViT(pl.LightningModule):
     """ Masked Autoencoder with VisionTransformer backbone
+    
     """
     def __init__(self, img_size=224, patch_size=16, in_chans=3,
                  embed_dim=1024, depth=24, num_heads=16,
@@ -351,6 +354,6 @@ class MaskedAutoencoderViT(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
         # return optimizer
-        scheduler = CosineAnnealingWarmRestarts(optimizer, 400)
+        scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [scheduler]
 
