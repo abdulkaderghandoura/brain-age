@@ -7,6 +7,7 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np
 
+import wandb
 import torch
 import torch.nn as nn
 # --------------------------------------------------------
@@ -307,16 +308,35 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
     def training_step(self, batch):
         eegs = batch
-        loss, _, _ = self(eegs)
+        loss, pred, target, mask = self(eegs)
         
+        patch_idx = torch.where(mask[0, :])[0][0]
+        pred_patch = pred[0, patch_idx, :].view(*self.patch_size)
+        target_patch = target[0, patch_idx, :].view(*self.patch_size)
+        
+        pred_patch = pred_patch / torch.linalg.norm(pred_patch, dim=-1, keepdims=True)
+        target_patch = target_patch / torch.linalg.norm(target_patch, dim=-1, keepdims=True)
+        cos_sim_inter_ch = (target_patch*pred_patch).sum(-1)
+        cos_sim_intra_ch = torch.diag(cos_sim_inter_ch).mean()
+
+        self.logger.experiment.log({"Reconstruction" : wandb.plot.line_series(
+          xs=[i for i in range(target_patch.shape[0])],
+          ys=[[t+idx for t in ch] for idx, ch in enumerate(target_patch)] \
+          + [[t+idx for t in ch] for idx, ch in enumerate(pred_patch)],
+          keys=["target_"+str(i) for i in range(target_patch.shape[0])] \
+          + ["pred_"+str(i) for i in range(target_patch.shape[0])],
+          title="Target vs Predicted Channels",
+          xname="Time")})
+        
+        self.log("cosine similarity within channels", cos_sim_intra_ch, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
     
     def validation_step(self, batch, batch_idx): 
         eegs = batch
+
         self.log("EEG std", (eegs[0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        loss, pred, _ = self(eegs)
-        target = self.patchify(eegs)
+        loss, pred, target, _ = self(eegs)
         
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("pred std", (pred[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -349,7 +369,8 @@ class MaskedAutoencoderViT(pl.LightningModule):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
-        return loss, pred, mask
+        target = self.patchify(imgs)
+        return loss, pred, target, mask
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
