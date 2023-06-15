@@ -15,7 +15,7 @@ class EEGDataset(Dataset):
 
         file_paths = list()
         for dataset_name in dataset_names:
-            dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed')
+            dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed', 'v1.0')
             for split in splits:
                 split_path = os.path.join(dataset_path, dataset_name + '_{}'.format(split) + '.txt')
                 with open(split_path, 'r') as in_file:
