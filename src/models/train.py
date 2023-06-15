@@ -88,8 +88,8 @@ def main(args):
     np.random.seed(seed)
 
     #size of the input = # of seconds * sampling frequency 
-    model = MaskedAutoencoderViT(img_size=(65, args.input_time * 135), \
-                                        patch_size=(65, args.patch_size), \
+    model = MaskedAutoencoderViT(img_size=(63, args.input_time * 135), \
+                                        patch_size=(63, args.patch_size), \
                                         in_chans=1, 
                                         embed_dim=args.embed_dim, 
                                         depth=args.depth, 
