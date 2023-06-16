@@ -46,12 +46,15 @@ class HBNFormatter:
         chs_to_exclude = chs_to_exclude + [ch for ch in self.montage_hbn.ch_names if "Fid" in ch]
         # set-up interpolation
         self.interpolate = InterpolateElectrodes(montage_hbn, montage_bap, channel_names_bap, chs_to_exclude)
-        
-        
-        
-    def __call__(self, mat_file):
-        ## Load the .mat file
-        mat_struct = scipy.io.loadmat(mat_file)
+    
+    def read_eeg(self, file):
+        raw = mne.io.read_raw(file, verbose=False, preload=True)
+        raw.set_montage(self.montage_hbn)
+        return raw
+    
+    def read_mat(self, file):
+        # Load the .mat file
+        mat_struct = scipy.io.loadmat(file)
 
         ## organize the meta data
         raw_data = mat_struct["EEG"]["data"][0][0]
@@ -61,17 +64,37 @@ class HBNFormatter:
         ch_types_hbn = len(self.ch_names_hbn)* ["eeg"]
         info = mne.create_info(ch_names=self.ch_names_hbn, sfreq=fs, ch_types=ch_types_hbn)
         info.set_montage(self.montage_hbn)
-        raw = mne.io.RawArray(raw_data, info)
+        return mne.io.RawArray(raw_data, info)
         
+
+    def load_to_raw(self, file):
+        ## Load the eeg file
+        if file.suffix == ".mat":
+            return self.read_mat(file)
+        else:
+            return self.read_eeg(file)
+        
+        
+    def __call__(self, file):
+        ## Load the eeg file
+        raw = self.load_to_raw(file)
+
         ## find & repair bad channels (takes most of the processing time)
         nc = NoisyChannels(raw)
         nc.find_all_bads()
         raw.info['bads'].extend(nc.get_bads())
         raw.interpolate_bads(reset_bads=True)
+        raw.compute_psd().plot_topomap(dB=True)
+        plt.show()
+
         
         if self.interpolation:
             ch_types_bap = len(self.channel_names_bap)*["eeg"]
-            info = mne.create_info(ch_names=self.channel_names_bap, sfreq=fs, ch_types=ch_types_bap)
+            info = mne.create_info(
+                ch_names=self.channel_names_bap, 
+                sfreq=raw.info["sfreq"], 
+                ch_types=ch_types_bap
+                )
             info.set_montage(self.montage_bap)
             raw_data = self.interpolate(raw._data)
             ## overwrite as raw bap
