@@ -11,21 +11,29 @@ import multiprocessing
 
 import sys
 sys.path.append('../utils/')
-from format_hbn import HBNFormatter
-from preprocessing_utils import get_hbn_formatter
+# from format_hbn import HBNFormatter
+from preprocessing_utils import HBNFormatter, get_hbn_formatter, apply_in_order
+
+# pbar = None
 
 
-def preprocess_file(file_path, dataset_name, hbn_formatter, new_file_path=None, sfreq=None, references=[], filters={}):    
+def preprocess_file(file_path, dataset_name, hbn_formatter, preprocessing_steps, new_file_path=None, sfreq=None, references=[], filters=[]):
     eeg_obj = None
     if dataset_name == 'bap':
         # Load EEG data into an EEG raw object
         eeg_obj = mne.io.read_raw_brainvision(file_path, verbose=False, preload=True)
+        eeg_obj = eeg_obj.drop_channels(['LE', 'RE'])
         # Set channel types for all channels to 'eeg'
         eeg_obj.set_channel_types({channel: 'eeg' for channel in eeg_obj.ch_names})
-        # Correct channel types of LE and RE
-        eeg_obj.set_channel_types({'LE':'misc', 'RE':'misc'})
+        # # Correct channel types of LE and RE
+        # eeg_obj.set_channel_types({'LE':'misc', 'RE':'misc'})
+
+        preprocessing_steps = [x for x in preprocessing_steps if x != 'bad_ch']
+        eeg_obj = apply_in_order(eeg_obj, preprocessing_steps, filters, sfreq)
+    
     elif dataset_name == 'hbn':
-        eeg_obj = hbn_formatter(file_path)
+        assert 'bad_ch' in preprocessing_steps
+        eeg_obj = hbn_formatter(file_path, preprocessing_steps, filters, sfreq)
 
     for ref_item in references:
         if ref_item == 'average':
@@ -40,38 +48,22 @@ def preprocess_file(file_path, dataset_name, hbn_formatter, new_file_path=None, 
             channel_names = eeg_obj.ch_names
             eeg_obj.set_eeg_reference(ref_channels=ref_item)
             eeg_obj = eeg_obj.pick(picks=channel_names)
-
-    # Apply the specified filters
-    # Note: The if-else is implemented this way to minimize the number filtering operations
-    if 'nf' in filters:
-        # Apply a notch filter to the raw data
-        eeg_obj = eeg_obj.notch_filter(freqs=filters['nf'], notch_widths=0.5, method='spectrum_fit', verbose=False)
-    if 'lpf' in filters and 'hpf' in filters:
-        # Apply a band-pass filter to the raw data
-        eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=filters['lpf'], fir_design='firwin', h_trans_bandwidth=5, verbose=False)
-    elif 'lpf' in filters:
-        # Apply a low-pass filter to the raw data
-        eeg_obj = eeg_obj.filter(l_freq=None, h_freq=filters['lpf'], fir_design='firwin', h_trans_bandwidth=5, verbose=False)
-    elif 'hpf' in filters:
-        # Apply a high-pass filter to the raw data
-        eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=None, fir_design='firwin', h_trans_bandwidth=5, verbose=False)
-
-    if sfreq is not None:
-        eeg_obj = eeg_obj.resample(sfreq=sfreq, verbose=False)
-
+    
     if new_file_path is not None:
         # Save the filtered EEG data as a pickle file
         with open(new_file_path, mode='wb') as out_file:
             pickle.dump(eeg_obj, out_file, protocol=5)
-        
-    return eeg_obj.get_data(), None if new_file_path is None else None, new_file_path
+
+    return ((eeg_obj.get_data(), None) if new_file_path is None else (None, new_file_path))
 
 
 def callback(new_file_path):
-    print(f"Saved: {new_file_path}")
+    print(f"Saved: {new_file_path[1]}")
+    # Update the progress bar
+    # pbar.update(1)
 
 
-def preprocessed_data(datasets_path, dataset_names, sfreq, references, filters):
+def preprocessed_data(datasets_path, dataset_names, preprocessing_version, preprocessing_steps, sfreq, references, filters):
     start_time = time.time()
 
     # Disable RuntimeWarning messages
@@ -85,10 +77,11 @@ def preprocessed_data(datasets_path, dataset_names, sfreq, references, filters):
     paths_list = list()
 
     # Set the number of worker processes (adjust according to your system)
-    num_processes = 32
     # num_processes = multiprocessing.cpu_count()
+    num_processes = 32
 
     with multiprocessing.Pool(processes=num_processes) as pool:
+
         for dataset_name in dataset_names:
             print(f'Started processing {dataset_name} dataset..')
             
@@ -101,6 +94,7 @@ def preprocessed_data(datasets_path, dataset_names, sfreq, references, filters):
             input_data_path = os.path.join('/', *input_data_dirs)
 
             output_data_dirs = datasets_path_dirs + [dataset_name, 'preprocessed']
+            output_data_dirs.append(preprocessing_version)
             
             # Walk through the directory tree starting from input_data_path
             for dir_path, _, file_names in os.walk(input_data_path):
@@ -117,8 +111,6 @@ def preprocessed_data(datasets_path, dataset_names, sfreq, references, filters):
                             file_path = os.path.join(dir_path, file_name)
                             # Create the new directory path for the output file
                             
-                            # TODO: Correct fix the problem that healthy_controls got the name preprocessed
-                            # TODO: pab/preprocessed/healthy_controls/preprocessed
                             new_dir_path = os.path.join('/', *output_data_dirs, *cur_dirs[len(input_data_dirs):])
 
                             new_dir_path = os.path.abspath(new_dir_path)
@@ -129,8 +121,12 @@ def preprocessed_data(datasets_path, dataset_names, sfreq, references, filters):
                             # print('file path: ', file_path)
                             # print('new file path: ', new_file_path)
             
-            for item in tqdm(paths_list):
-                pool.apply_async(preprocess_file, args=(item[0], dataset_name, hbn_formatter, item[1], sfreq, references, filters), callback=callback)
+            # Create a tqdm progress bar
+            # pbar = tqdm(total=len(paths_list))
+
+            for item in paths_list:
+                pool.apply_async(preprocess_file, args=(item[0], dataset_name, hbn_formatter, 
+                                 preprocessing_steps, item[1], sfreq, references, filters), callback=callback)
 
         # Wait for all processes to finish
         pool.close()
@@ -149,9 +145,11 @@ def preprocess_from_command_line():
     # Adding command line arguments
     parser.add_argument("--datasets_path", default='/data0/practical-sose23/brain-age/data/', help="Path to the datasets directory")
     parser.add_argument("-dataset_names", nargs='+', help="List of dataset names")
+    parser.add_argument("-version", default='v1.0', help="Directory name of the current version of preprocessing")
     parser.add_argument("--downsampling", help="Factor for downsampling")
     parser.add_argument("--references", nargs='+', default=[], help="List of reference channels")
-    parser.add_argument("--filters", default='{}', help="Optional key-value pairs in JSON format")
+    parser.add_argument("--filters", default={}, help='Optional key-value pairs in JSON format')
+    parser.add_argument("--preprocessing_steps", nargs='+', default=['lpf', 'sfreq', 'bad_ch', 'hpf'], help='Preprocessing steps in order')
     
     # Parsing the command line arguments
     args = parser.parse_args()
@@ -160,7 +158,7 @@ def preprocess_from_command_line():
     filters = json.loads(args.filters)
     
     # Preprocessing the data using the provided arguments
-    preprocessed_data(args.datasets_path, args.dataset_names, args.downsampling, args.references, filters)
+    preprocessed_data(args.datasets_path, args.dataset_names, args.version, args.preprocessing_steps, args.downsampling, args.references, filters)
 
 
 if __name__ == "__main__":
