@@ -119,7 +119,7 @@ import lightning.pytorch as pl
 import matplotlib.pyplot as plt 
 
 # from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
-from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
+# from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 class MaskedAutoencoderViT(pl.LightningModule):
     """ Masked Autoencoder with VisionTransformer backbone
@@ -205,7 +205,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
         x: (N, L, patch_size**2 *3)
         """
         p1, p2 = self.patch_embed.patch_size
-#         assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
+        # assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
         assert imgs.shape[2] % p1 == 0 and imgs.shape[3] % p2 == 0
     
         h = imgs.shape[2] // p1
@@ -321,10 +321,10 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
         self.logger.experiment.log({"Reconstruction" : wandb.plot.line_series(
           xs=[i for i in range(target_patch.shape[0])],
-          ys=[[t+idx for t in ch] for idx, ch in enumerate(target_patch)] \
-          + [[t+idx for t in ch] for idx, ch in enumerate(pred_patch)],
-          keys=["target_"+str(i) for i in range(target_patch.shape[0])] \
-          + ["pred_"+str(i) for i in range(target_patch.shape[0])],
+          ys=[[t+idx for t in ch] for idx, ch in enumerate(target_patch[:6])] \
+          + [[t+idx for t in ch] for idx, ch in enumerate(pred_patch[:6])],
+          keys=["target_"+str(i) for i in range(target_patch[:6].shape[0])] \
+          + ["pred_"+str(i) for i in range(target_patch[:6].shape[0])],
           title="Target vs Predicted Channels",
           xname="Time")})
         
@@ -375,6 +375,6 @@ class MaskedAutoencoderViT(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
         # return optimizer
-        scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
-        return [optimizer], [scheduler]
+        # scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
+        return [optimizer]#, [scheduler]
 
