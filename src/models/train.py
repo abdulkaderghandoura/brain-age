@@ -16,7 +16,7 @@ from mae import MaskedAutoencoderViT
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 import numpy as np
 # torch.cuda.empty_cache() 
-
+from mae_age_regressor import MAE_AGE
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE training', add_help=False)
     parser.add_argument('--experiment_name', default='mae_batch_training_EEG_AdamW_optim')
@@ -25,9 +25,11 @@ def get_args_parser():
                         help='Batch size')
     parser.add_argument('--epochs', default=400, type=int)
 
-    parser.add_argument('--dataset', default=['bap'], type=list, nargs='+', 
+    parser.add_argument('--train_dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
     
+    parser.add_argument('--val_dataset', default=['bap'], type=list, nargs='+', 
+                        help='dataset for training eg. bap, hbn, lemon')
     parser.add_argument('--standardization', default='channelwise', type=str,
                        help='standardization applied to the model input, e.g. channelwise, channelwide')
     
@@ -49,7 +51,7 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
 
     # to avoid a bottleneck 256 which is the number of cpus on the machine
-    parser.add_argument('--num_workers', default=8, type=int, 
+    parser.add_argument('--num_workers', default=30, type=int, 
                         help='number of workers for the dataloaders')
     
     parser.add_argument('--embed_dim', default=384, type=int, 
@@ -68,7 +70,10 @@ def get_args_parser():
                         help='ratio of mlp hidden dim to embedding dim')
     
     
-    #logging
+    parser.add_argument('--mae_age', default=True, type=bool, 
+                        help='run mae with age regression head or not')
+    parser.add_argument('--oversample', default=False, type=bool, 
+                        help='to oversample the minority dataset when training on target and external dataset ')
     
 
     return parser
@@ -88,19 +93,38 @@ def main(args):
     np.random.seed(seed)
 
     #size of the input = # of seconds * sampling frequency 
-    model = MaskedAutoencoderViT(img_size=(65, args.input_time * 135), \
-                                        patch_size=(65, args.patch_size), \
-                                        in_chans=1, 
-                                        embed_dim=args.embed_dim, 
-                                        depth=args.depth, 
-                                        num_heads=args.num_heads, 
-                                        decoder_embed_dim=args.decoder_embed_dim, 
-                                        decoder_depth=args.decoder_depth, 
-                                        decoder_num_heads=args.decoder_num_heads,
-                                        mlp_ratio=args.mlp_ratio, 
-                                        norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
-                                        # norm_pix_loss=True
-                                        )
+
+
+
+    if args.mae_age:
+        model = MAE_AGE(img_size=(63, args.input_time * 135), \
+                                            patch_size=(63, args.patch_size), \
+                                            in_chans=1, 
+                                            embed_dim=args.embed_dim, 
+                                            depth=args.depth, 
+                                            num_heads=args.num_heads, 
+                                            decoder_embed_dim=args.decoder_embed_dim, 
+                                            decoder_depth=args.decoder_depth, 
+                                            decoder_num_heads=args.decoder_num_heads,
+                                            mlp_ratio=args.mlp_ratio, 
+                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
+                                            # norm_pix_loss=True
+                                            )
+    else: 
+        model = MaskedAutoencoderViT(img_size=(63, args.input_time * 135), \
+                                    patch_size=(63, args.patch_size), \
+                                    in_chans=1, 
+                                    embed_dim=args.embed_dim, 
+                                    depth=args.depth, 
+                                    num_heads=args.num_heads, 
+                                    decoder_embed_dim=args.decoder_embed_dim, 
+                                    decoder_depth=args.decoder_depth, 
+                                    decoder_num_heads=args.decoder_num_heads,
+                                    mlp_ratio=args.mlp_ratio, 
+                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
+                                    # norm_pix_loss=True
+                                    )
+
     
     if args.standardization == "channelwise":
         norm = channelwise_norm
@@ -115,14 +139,14 @@ def main(args):
                                                         ])
 
 
-    train_dataset = EEGDataset(args.dataset, ['train'], transforms=composed_transforms)
+    train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(args.dataset, ['val'], transforms=composed_transforms)
+    val_dataset = EEGDataset(args.val_dataset, ['val'], transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers, 
@@ -137,28 +161,30 @@ def main(args):
     
     # early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
 
-    checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',  # Metric to monitor for saving the best model
-        filename='best_model',  # Filename pattern for saved models
-        save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
-        mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
-        dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
-        save_last=True
-    )
+    # checkpoint_callback = ModelCheckpoint(
+    #     monitor='val_loss',  # Metric to monitor for saving the best model
+    #     filename='best_model',  # Filename pattern for saved models
+    #     save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
+    #     mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
+    #     dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
+    #     save_last=True
+    # )
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
 
 
     trainer = pl.Trainer(
                         # overfit_batches=1,
+                        deterministic=True, # to ensure reproducibility 
                         devices=[0], 
                         callbacks=[lr_monitor, 
-                        checkpoint_callback, 
+                        # checkpoint_callback, 
                         # early_stop_callback
                         ], 
                         max_epochs=args.epochs, 
                         accelerator="gpu", 
                         logger=logger,
                         precision="bf16-mixed", 
+                        # fast_dev_run=True, 
                         )
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=validation_dataloader)
     wandb.finish()
