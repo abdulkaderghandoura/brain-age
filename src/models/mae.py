@@ -353,11 +353,13 @@ class MaskedAutoencoderViT(pl.LightningModule):
         # brain_age = self.brain_age_regressor(latent)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
-        return loss, pred, mask, latent
+        target = self.patchify(imgs)
+        return loss, pred, target, mask, latent
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
         # return optimizer
         scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [scheduler]
+
 

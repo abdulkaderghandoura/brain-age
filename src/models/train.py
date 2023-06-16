@@ -186,7 +186,11 @@ def main(args):
                         precision="bf16-mixed", 
                         # fast_dev_run=True, 
                         )
-    trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=validation_dataloader)
+    trainer.fit(
+        model=model, 
+        train_dataloaders=train_dataloader, 
+        val_dataloaders=[train_dataloader, validation_dataloader]
+        )
     wandb.finish()
 
 
