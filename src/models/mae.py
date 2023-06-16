@@ -136,10 +136,10 @@ class MaskedAutoencoderViT(pl.LightningModule):
         # --------------------------------------------------------------------------
         # MAE encoder specifics
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
-        num_patches = self.patch_embed.num_patches
+        self.num_patches = self.patch_embed.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.blocks = nn.ModuleList([
             Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
@@ -153,7 +153,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
         self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
 
-        self.decoder_pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
+        self.decoder_pos_embed = nn.Parameter(torch.zeros(1, self.num_patches + 1, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.decoder_blocks = nn.ModuleList([
             Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
@@ -162,6 +162,9 @@ class MaskedAutoencoderViT(pl.LightningModule):
         self.decoder_norm = norm_layer(decoder_embed_dim)
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size[0]*patch_size[1]* in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
+
+        ## --- Brain Age regressor head ---- 
+        self.brain_age_regressor = nn.Linear(embed_dim, 1)
 
         self.norm_pix_loss = norm_pix_loss
 
@@ -308,18 +311,18 @@ class MaskedAutoencoderViT(pl.LightningModule):
     def training_step(self, batch):
         eegs = batch
         loss, _, _ = self(eegs)
-        
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
     
     def validation_step(self, batch, batch_idx): 
         eegs = batch
-        self.log("EEG std", (eegs[0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         loss, pred, _ = self(eegs)
-        target = self.patchify(eegs)
         
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("pred std", (pred[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        target = self.patchify(eegs)
+
         self.log("target std", (target[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
@@ -347,9 +350,10 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
     def forward(self, imgs, mask_ratio=0.75):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
+        # brain_age = self.brain_age_regressor(latent)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
-        return loss, pred, mask
+        return loss, pred, mask, latent
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
