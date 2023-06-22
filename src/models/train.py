@@ -98,7 +98,7 @@ def main(args):
 
     if args.mae_age:
         model = MAE_AGE(img_size=(63, args.input_time * 135), \
-                                            patch_size=(63, args.patch_size), \
+                                            patch_size=(63, 90), \
                                             in_chans=1, 
                                             embed_dim=args.embed_dim, 
                                             depth=args.depth, 
@@ -139,14 +139,21 @@ def main(args):
                                                         ])
 
 
-    train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
-    train_dataloader = DataLoader(train_dataset, 
+    # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
+    autoencoder_train_dataset = EEGDataset(['hbn'], ['train'], transforms=composed_transforms, oversample=False)
+    autoencoder_train_dataloader = DataLoader(autoencoder_train_dataset, 
+                                batch_size=args.batch_size, 
+                                num_workers=args.num_workers, 
+                                pin_memory=True, 
+                                shuffle=True)
+    regressor_train_dataset = EEGDataset(['bap'], ['train'], transforms=composed_transforms, oversample=False)
+    regressor_train_dataloader = DataLoader(regressor_train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(args.val_dataset, ['val'], transforms=composed_transforms)
+    val_dataset = EEGDataset(['hbn'], ['val'], transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers, 
@@ -188,8 +195,8 @@ def main(args):
                         )
     trainer.fit(
         model=model, 
-        train_dataloaders=train_dataloader, 
-        val_dataloaders=[train_dataloader, validation_dataloader]
+        train_dataloaders=autoencoder_train_dataloader, 
+        val_dataloaders=[autoencoder_train_dataloader, validation_dataloader]
         )
     wandb.finish()
 

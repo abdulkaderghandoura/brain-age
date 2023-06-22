@@ -4,7 +4,7 @@ import lightning.pytorch as pl
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 import torch.nn as nn
-from torch.optim import Adam, AdamW
+from torch.optim import Adam, AdamW, LBFGS
 import torch 
 
 from torchmetrics import R2Score
@@ -73,13 +73,13 @@ class MAE_AGE(pl.LightningModule):
 
     def configure_optimizers(self):
 
-        autoencoder_optimizer = AdamW(self.autoencoder.parameters(), lr=1e-3, betas=(0.9, 0.95))
+        autoencoder_optimizer = AdamW(self.autoencoder.parameters(), lr=2.5e-4, betas=(0.9, 0.95), weight_decay=5e-2)
         
         auto_encoder_scheduler = LinearWarmupCosineAnnealingLR(autoencoder_optimizer, warmup_epochs=40, max_epochs=400)
         # auto_encoder_scheduler = CosineAnnealingWarmRestarts(autoencoder_optimizer, 400)
 
 
-        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=1e-3)
+        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=2.5e-4, weight_decay=5e-2)
         # regressor_scheduler = CosineAnnealingWarmRestarts(regressor_optimizer, 400)
         regressor_scheduler = LinearWarmupCosineAnnealingLR(regressor_optimizer, warmup_epochs=40, max_epochs=400)
         return [autoencoder_optimizer, regressor_optimizer], [auto_encoder_scheduler, regressor_scheduler]
@@ -93,9 +93,9 @@ class MAE_AGE(pl.LightningModule):
         # embedding = torch.squeeze(latent, dim=1)
         # self.print(latent.size())
 
-        # mae_optimizer.zero_grad() 
-        # self.manual_backward(reconstruction_loss, retain_graph=True)
-        # mae_optimizer.step()
+        mae_optimizer.zero_grad() 
+        self.manual_backward(reconstruction_loss, retain_graph=True)
+        mae_optimizer.step()
 
         # age_prediction = self.age_regressor(latent).squeeze()
         # age_loss = nn.functional.mse_loss(age_prediction.float(), age.float())
@@ -110,7 +110,7 @@ class MAE_AGE(pl.LightningModule):
         # self.log("train_age_loss", age_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return reconstruction_loss
 
-    def on_train_epoch_end(self):
+    def on_validation_epoch_end(self):
         for lr_scheduler in self.lr_schedulers():
             lr_scheduler.step()
     
@@ -148,6 +148,8 @@ class MAE_AGE(pl.LightningModule):
             pred_age = self.age_regressor(latent)
             age_loss = nn.functional.l1_loss(age.squeeze(), pred_age.squeeze())
             self.manual_backward(age_loss)
+            opt_regressor.step()
+
             age_r2  = self.r2(pred_age.squeeze(), age.squeeze())
 
             # self.log("train_mae_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -171,6 +173,6 @@ class MAE_AGE(pl.LightningModule):
         patch_idx = torch.where(mask[0, :])[0][0]
         pred_patch = pred[0, patch_idx, :].view(*self.autoencoder.patch_size)
         target_patch = target[0, patch_idx, :].view(*self.autoencoder.patch_size)
-        self.evaluate_reconstruction_step(target_patch, pred_patch, split)
+        # self.evaluate_reconstruction_step(target_patch, pred_patch, split)
 
         return reconstruction_loss
