@@ -164,7 +164,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
         # --------------------------------------------------------------------------
 
         ## --- Brain Age regressor head ---- 
-        self.brain_age_regressor = nn.Linear(embed_dim, 1)
+        # self.brain_age_regressor = nn.Linear(embed_dim, 1)
 
         self.norm_pix_loss = norm_pix_loss
 
@@ -309,21 +309,21 @@ class MaskedAutoencoderViT(pl.LightningModule):
         return x
 
     def training_step(self, batch):
-        eegs = batch
-        loss, _, _ = self(eegs)
+        eegs, age = batch
+        loss, pred, _, _, _= self(eegs)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
     
     def validation_step(self, batch, batch_idx): 
-        eegs = batch
-        loss, pred, _ = self(eegs)
+        eegs, age = batch
+        loss, pred, _, _, _ = self(eegs)
         
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("pred std", (pred[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("pred std", (pred[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        target = self.patchify(eegs)
+        # target = self.patchify(eegs)
 
-        self.log("target std", (target[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("target std", (target[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def forward_loss(self, imgs, pred, mask):

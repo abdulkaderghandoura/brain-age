@@ -23,7 +23,7 @@ def get_args_parser():
     
     parser.add_argument('--batch_size', default=256, type=int,
                         help='Batch size')
-    parser.add_argument('--epochs', default=400, type=int)
+    parser.add_argument('--epochs', default=10, type=int)
 
     parser.add_argument('--train_dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
@@ -70,7 +70,7 @@ def get_args_parser():
                         help='ratio of mlp hidden dim to embedding dim')
     
     
-    parser.add_argument('--mae_age', default=True, type=bool, 
+    parser.add_argument('--mae_age', default=False, type=bool, 
                         help='run mae with age regression head or not')
     parser.add_argument('--oversample', default=False, type=bool, 
                         help='to oversample the minority dataset when training on target and external dataset ')
@@ -98,7 +98,7 @@ def main(args):
 
     if args.mae_age:
         model = MAE_AGE(img_size=(63, args.input_time * 135), \
-                                            patch_size=(63, 90), \
+                                            patch_size=(63, args.patch_size), \
                                             in_chans=1, 
                                             embed_dim=args.embed_dim, 
                                             depth=args.depth, 
@@ -140,7 +140,7 @@ def main(args):
 
 
     # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
-    autoencoder_train_dataset = EEGDataset(['hbn'], ['train'], transforms=composed_transforms, oversample=False)
+    autoencoder_train_dataset = EEGDataset(['bap', 'hbn'], ['train'], transforms=composed_transforms, oversample=False)
     autoencoder_train_dataloader = DataLoader(autoencoder_train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
@@ -153,7 +153,7 @@ def main(args):
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['hbn'], ['val'], transforms=composed_transforms)
+    val_dataset = EEGDataset(['bap'], ['val'], transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers, 
@@ -168,14 +168,14 @@ def main(args):
     
     # early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
 
-    # checkpoint_callback = ModelCheckpoint(
-    #     monitor='val_loss',  # Metric to monitor for saving the best model
-    #     filename='best_model',  # Filename pattern for saved models
-    #     save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
-    #     mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
-    #     dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
-    #     save_last=True
-    # )
+    checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss',  # Metric to monitor for saving the best model
+        filename='best_model',  # Filename pattern for saved models
+        save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
+        mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
+        dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
+        save_last=True
+    )
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
 
 
@@ -184,7 +184,7 @@ def main(args):
                         deterministic=True, # to ensure reproducibility 
                         devices=[0], 
                         callbacks=[lr_monitor, 
-                        # checkpoint_callback, 
+                        checkpoint_callback, 
                         # early_stop_callback
                         ], 
                         max_epochs=args.epochs, 
@@ -196,7 +196,7 @@ def main(args):
     trainer.fit(
         model=model, 
         train_dataloaders=autoencoder_train_dataloader, 
-        val_dataloaders=[autoencoder_train_dataloader, validation_dataloader]
+        val_dataloaders=validation_dataloader
         )
     wandb.finish()
 
