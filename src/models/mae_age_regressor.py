@@ -79,7 +79,7 @@ class MAE_AGE(pl.LightningModule):
         # auto_encoder_scheduler = CosineAnnealingWarmRestarts(autoencoder_optimizer, 400)
 
 
-        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=2.5e-4, weight_decay=5e-2)
+        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=2.5e-4)
         # regressor_scheduler = CosineAnnealingWarmRestarts(regressor_optimizer, 400)
         regressor_scheduler = LinearWarmupCosineAnnealingLR(regressor_optimizer, warmup_epochs=40, max_epochs=400)
         return [autoencoder_optimizer, regressor_optimizer], [auto_encoder_scheduler, regressor_scheduler]
@@ -110,9 +110,16 @@ class MAE_AGE(pl.LightningModule):
         # self.log("train_age_loss", age_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return reconstruction_loss
 
+    def on_train_epoch_end(self): 
+        auto_encoder_scheduler, _ = self.lr_schedulers()
+        auto_encoder_scheduler.step()
+        # regressor_scheduler.step()
+
     def on_validation_epoch_end(self):
-        for lr_scheduler in self.lr_schedulers():
-            lr_scheduler.step()
+        _, regressor_scheduler = self.lr_schedulers()
+        regressor_scheduler.step()
+        # for lr_scheduler in self.lr_schedulers():
+            # lr_scheduler.step()
     
     
     def evaluate_reconstruction_step(self, target_patch, pred_patch, split="train"):
@@ -141,7 +148,7 @@ class MAE_AGE(pl.LightningModule):
         if dataloader_idx == 0:
 
             with torch.no_grad():
-                reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs)
+                reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs, set_masking_seed=True)
             torch.set_grad_enabled(True)
             
             opt_regressor.zero_grad()
@@ -158,7 +165,7 @@ class MAE_AGE(pl.LightningModule):
 
         if dataloader_idx == 1:
             
-            reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs)
+            reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs, set_masking_seed=True)
             pred_age = self.age_regressor(latent)
             age_loss = nn.functional.l1_loss(age.squeeze(), pred_age.squeeze())
             age_r2  = self.r2(pred_age.squeeze(), age.squeeze())

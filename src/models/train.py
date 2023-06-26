@@ -51,14 +51,14 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
 
     # to avoid a bottleneck 256 which is the number of cpus on the machine
-    parser.add_argument('--num_workers', default=30, type=int, 
+    parser.add_argument('--num_workers', default=10, type=int, 
                         help='number of workers for the dataloaders')
     
     parser.add_argument('--embed_dim', default=384, type=int, 
                         help='embedding dimension of the encoder')
-    parser.add_argument('--depth', default=3, type=int, 
+    parser.add_argument('--depth', default=2, type=int, 
                         help='the number of blocks of the encoder')
-    parser.add_argument('--num_heads', default=6, type=int, 
+    parser.add_argument('--num_heads', default=4, type=int, 
                         help='the number of attention heads of the encoder')
     parser.add_argument('--decoder_embed_dim', default=256, type=int, 
                         help='the embedding dimension of the decoder')
@@ -98,7 +98,7 @@ def main(args):
 
     if args.mae_age:
         model = MAE_AGE(img_size=(63, args.input_time * 135), \
-                                            patch_size=(63, 90), \
+                                            patch_size=(21, 90), \
                                             in_chans=1, 
                                             embed_dim=args.embed_dim, 
                                             depth=args.depth, 
@@ -140,7 +140,7 @@ def main(args):
 
 
     # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
-    autoencoder_train_dataset = EEGDataset(['hbn'], ['train'], transforms=composed_transforms, oversample=False)
+    autoencoder_train_dataset = EEGDataset(['bap'], ['train'], transforms=composed_transforms, oversample=True)
     autoencoder_train_dataloader = DataLoader(autoencoder_train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
@@ -153,7 +153,7 @@ def main(args):
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['hbn'], ['val'], transforms=composed_transforms)
+    val_dataset = EEGDataset(['bap'], ['val'], transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers, 
@@ -187,6 +187,7 @@ def main(args):
                         # checkpoint_callback, 
                         # early_stop_callback
                         ], 
+                        check_val_every_n_epoch=1,
                         max_epochs=args.epochs, 
                         accelerator="gpu", 
                         logger=logger,
@@ -196,7 +197,7 @@ def main(args):
     trainer.fit(
         model=model, 
         train_dataloaders=autoencoder_train_dataloader, 
-        val_dataloaders=[autoencoder_train_dataloader, validation_dataloader]
+        val_dataloaders=[regressor_train_dataloader, validation_dataloader]
         )
     wandb.finish()
 
