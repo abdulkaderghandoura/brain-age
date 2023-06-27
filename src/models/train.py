@@ -74,7 +74,17 @@ def get_args_parser():
                         help='run mae with age regression head or not')
     parser.add_argument('--oversample', default=False, type=bool, 
                         help='to oversample the minority dataset when training on target and external dataset ')
+    parser.add_argument('--overfit_batches', default=1.0, type=float, 
+                        help='to debug model on a fraction of batches')
     
+    parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
+                        help='learning rate to train the masked autoencoder with')    
+    parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
+                        help='learning rate to train the regression head with')
+    
+    parser.add_argument('--pixel_norm', default=False, type=bool, 
+                        help='normalize the output pixels before computing the loss')
+
 
     return parser
     
@@ -107,8 +117,10 @@ def main(args):
                                             decoder_depth=args.decoder_depth, 
                                             decoder_num_heads=args.decoder_num_heads,
                                             mlp_ratio=args.mlp_ratio, 
-                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
-                                            # norm_pix_loss=True
+                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+                                            norm_pix_loss=args.pixel_norm,
+                                            lr_mae=args.lr_mae,
+                                            lr_regressor=args.lr_regressor
                                             )
     else: 
         model = MaskedAutoencoderViT(img_size=(63, args.input_time * 135), \
@@ -121,8 +133,10 @@ def main(args):
                                     decoder_depth=args.decoder_depth, 
                                     decoder_num_heads=args.decoder_num_heads,
                                     mlp_ratio=args.mlp_ratio, 
-                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
-                                    # norm_pix_loss=True
+                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+                                    norm_pix_loss=args.pixel_norm,
+                                    lr_mae=args.lr_mae,
+                                    lr_regressor=args.lr_regressor
                                     )
 
     
@@ -180,7 +194,7 @@ def main(args):
 
 
     trainer = pl.Trainer(
-                        # overfit_batches=1,
+                        overfit_batches=args.overfit_batches,
                         deterministic=True, # to ensure reproducibility 
                         devices=[0], 
                         callbacks=[lr_monitor, 
