@@ -191,3 +191,7 @@ class MAE_AGE(pl.LightningModule):
         self.evaluate_reconstruction_step(target_patch, pred_patch, split)
 
         return reconstruction_loss
+    
+    def forward(self, eegs):
+        *_, latent = self.autoencoder(eegs)
+        return latent
