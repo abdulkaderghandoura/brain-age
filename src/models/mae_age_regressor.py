@@ -7,6 +7,9 @@ import torch.nn as nn
 from torch.optim import Adam, AdamW, LBFGS
 import torch 
 
+from matplotlib import pyplot as plt
+# import numpy as np
+
 from torchmetrics import R2Score
 # class AgeRegressor(nn.Module):
 #     def __init__(self, input_dim, output_dim):
@@ -173,6 +176,35 @@ class MAE_AGE(pl.LightningModule):
         patch_idx = torch.where(mask[0, :])[0][0]
         pred_patch = pred[0, patch_idx, :].view(*self.autoencoder.patch_size)
         target_patch = target[0, patch_idx, :].view(*self.autoencoder.patch_size)
-        # self.evaluate_reconstruction_step(target_patch, pred_patch, split)
+
+        if batch_idx == 0:
+            self.visualize(mask, target, pred, split)
 
         return reconstruction_loss
+
+    def visualize(self, mask, target, pred, split="train"): 
+        inverted_mask = 1 - mask
+        expanded_mask = inverted_mask[0].unsqueeze(-1)
+        masked_target = target[0] * expanded_mask
+
+
+        show_rate = int((masked_target.reshape(-1).shape[0] * 0.05 ) // 1)
+
+        reshaped_mask = expanded_mask.expand_as(target).float()[:show_rate].cpu()
+        flattened_mask = reshaped_mask.reshape(-1)[:show_rate].cpu()
+        flattened_masked_target = masked_target.view(-1)[:show_rate].cpu()
+        flattened_target = target[0].view(-1)[:show_rate].cpu()
+        flattened_pred = pred[0].view(-1)[:show_rate].cpu()
+
+        
+        fig, ax = plt.subplots(4, figsize=(15, 5))
+        ax[0].plot([i for i in range(flattened_target.shape[-1])], flattened_target.float())
+        ax[0].set_title("target")
+        ax[1].plot([i for i in range(flattened_masked_target.shape[-1])], flattened_masked_target.float())
+        ax[1].set_title("masked target")
+        ax[2].plot([i for i in range(flattened_mask.shape[-1])], flattened_mask.float())
+        ax[2].set_title("mask")
+        ax[3].plot([i for i in range(flattened_pred.shape[-1])], flattened_pred.float().detach().numpy())
+        ax[3].set_title("prediction")
+        wandb.log({"signals_{}".format(split): fig})
+
