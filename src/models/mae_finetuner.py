@@ -13,24 +13,26 @@ from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 import torch.nn as nn
 import torch
 from torchmetrics import R2Score
+from mae_age_regressor import AgeRegressor
 
 class MAE_Finetuner(pl.LightningModule):
-    def __init__(self, pretrained_model):
+    def __init__(self, pretrained_model, lr):
         super(MAE_Finetuner, self).__init__()
         self.pretrained_model = pretrained_model
-        self.linear = nn.LazyLinear(1)
+        self.head = AgeRegressor(output_dim=1)
+        self.lr = lr
         self.r2 = R2Score()
         
     def forward(self, eegs):
         # Forward pass through the pre-trained model
         features = self.pretrained_model(eegs)
         # Forward pass through the linear layer
-        output = self.linear(features)
+        output = self.head(features)
         return output
     
     def training_step(self, batch, batch_idx):
         eegs, age = batch
-        logits = self(eegs)
+        logits = self(eegs).squeeze()
         loss = nn.functional.l1_loss(logits, age)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         r2 = self.r2(logits, age)
@@ -39,7 +41,7 @@ class MAE_Finetuner(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx):
         eegs, age = batch
-        logits = self(eegs)
+        logits = self(eegs).squeeze()
         loss = nn.functional.l1_loss(logits, age)
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         r2 = self.r2(logits, age)
@@ -47,7 +49,7 @@ class MAE_Finetuner(pl.LightningModule):
         return loss
     
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=0.00001)
+        optimizer = optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
 
 

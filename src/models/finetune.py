@@ -80,7 +80,7 @@ def get_args_parser():
     parser.add_argument('--overfit_batches', default=1.0, type=float, 
                         help='to debug model on a fraction of batches')
     
-    parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
+    parser.add_argument('--lr_mae', default=1e-6, type=float, 
                         help='learning rate to train the masked autoencoder with')    
     parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
                         help='learning rate to train the regression head with')
@@ -130,7 +130,7 @@ def main(args):
     ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
     checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
     model.load_state_dict(checkpoint['state_dict'])
-    model = MAE_Finetuner(model)
+    model = MAE_Finetuner(model, args.lr_mae)
     
     
     
@@ -164,7 +164,7 @@ def main(args):
                                 pin_memory=True, 
                                 shuffle=True)
     
-
+    wandb.login()
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
                                     save_dir="wandb/", log_model=False)
     
@@ -181,27 +181,27 @@ def main(args):
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
 
 
-#     trainer = pl.Trainer(
-#                         overfit_batches=args.overfit_batches,
-#                         deterministic=True, # to ensure reproducibility 
-#                         devices=[0], 
-#                         callbacks=[lr_monitor, 
-#                         # checkpoint_callback, 
-#                         # early_stop_callback
-#                         ], 
-#                         check_val_every_n_epoch=1,
-#                         max_epochs=args.epochs, 
-#                         accelerator="gpu", 
-#                         logger=logger,
-#                         precision="bf16-mixed", 
-#                         # fast_dev_run=True, 
-#                         )
-#     trainer.fit(
-#         model=model, 
-#         train_dataloaders=train_dataloader, 
-#         val_dataloaders=val_dataloader
-#         )
-#     wandb.finish()
+    trainer = pl.Trainer(
+                        overfit_batches=args.overfit_batches,
+                        deterministic=True, # to ensure reproducibility 
+                        devices=[0], 
+                        callbacks=[lr_monitor, 
+                        # checkpoint_callback, 
+                        # early_stop_callback
+                        ], 
+                        check_val_every_n_epoch=1,
+                        max_epochs=args.epochs, 
+                        accelerator="gpu", 
+                        logger=logger,
+                        precision="bf16-mixed", 
+                        # fast_dev_run=True, 
+                        )
+    trainer.fit(
+        model=model, 
+        train_dataloaders=train_dataloader, 
+        val_dataloaders=val_dataloader
+        )
+    wandb.finish()
 
 
 if __name__ == '__main__':

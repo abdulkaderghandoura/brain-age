@@ -178,7 +178,7 @@ def main(args):
 
     wandb.login()
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
-                                    save_dir="wandb/", log_model=False)
+                                    save_dir="wandb/", log_model=True)
     
     # early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
 
