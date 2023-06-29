@@ -155,10 +155,6 @@ class MAE_AGE(pl.LightningModule):
 
             age_r2  = self.r2(pred_age.squeeze(), age.squeeze())
 
-            # self.log("train_mae_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            # self.log('train_age_loss', age_loss, prog_bar=True, logger=True)
-            # self.log('train_age_r2', age_r2, prog_bar=True, logger=True)
-
         if dataloader_idx == 1:
             
             reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs)
@@ -182,7 +178,7 @@ class MAE_AGE(pl.LightningModule):
 
         return reconstruction_loss
 
-    def visualize(self, mask, target, pred, split="train"): 
+    def visualize_flattened(self, mask, target, pred, split="train"): 
         inverted_mask = 1 - mask
         expanded_mask = inverted_mask[0].unsqueeze(-1)
         masked_target = target[0] * expanded_mask
@@ -206,5 +202,41 @@ class MAE_AGE(pl.LightningModule):
         ax[2].set_title("mask")
         ax[3].plot([i for i in range(flattened_pred.shape[-1])], flattened_pred.float().detach().numpy())
         ax[3].set_title("prediction")
+        wandb.log({"signals_{}".format(split): fig})
+
+    def visualize(self, mask, target, pred, split="train"): 
+        inverted_mask = 1 - mask
+        expanded_mask = inverted_mask[0].unsqueeze(-1)
+        masked_target = target[0] * expanded_mask
+        
+        ch_idx = 13
+        target_channel = []
+        masked_channel = []
+        pred_channel = []
+        mask_channel = []
+        for patch_idx in range(target.shape[1]):
+            pred_patch = pred[0, patch_idx, :].view(*self.autoencoder.patch_size)
+            target_patch = target[0, patch_idx, :].view(*self.autoencoder.patch_size)
+            target_channel.append(target_patch[ch_idx, :])
+            pred_channel.append(pred_patch[ch_idx, :])
+            masked_channel.append(target_patch[ch_idx, :] * (1-mask[0, patch_idx]))
+        target_channel = torch.cat(target_channel)
+        pred_channel = torch.cat(pred_channel)
+        masked_channel = torch.cat(masked_channel)
+        mask_channel = masked_channel == 0
+        
+
+
+      
+        fig, ax = plt.subplots(4, figsize=(15, 5))
+        ax[0].plot(target_channel.cpu())
+        ax[0].set_title("target")
+        ax[1].plot(pred_channel.cpu().detach().numpy())
+        ax[1].set_title("reconstruction")
+        ax[2].plot(masked_channel.cpu())
+        ax[2].set_title("masked")
+        ax[3].plot(mask_channel.cpu())
+        ax[3].set_title("mask")
+        fig.tight_layout()
         wandb.log({"signals_{}".format(split): fig})
 
