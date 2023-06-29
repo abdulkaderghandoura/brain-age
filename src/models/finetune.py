@@ -18,6 +18,8 @@ import numpy as np
 import pathlib
 # torch.cuda.empty_cache() 
 from mae_age_regressor import MAE_AGE
+from mae_finetuner import MAE_Finetuner
+
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE training', add_help=False)
     parser.add_argument('--experiment_name', default='finetuning')
@@ -128,6 +130,9 @@ def main(args):
     ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
     checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
     model.load_state_dict(checkpoint['state_dict'])
+    model = MAE_Finetuner(model)
+    
+    
     
     if args.standardization == "channelwise":
         norm = channelwise_norm
