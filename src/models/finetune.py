@@ -83,8 +83,8 @@ def get_args_parser():
     parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
                         help='learning rate to train the regression head with')
     
-    parser.add_argument('--artifact_name', default='f0rtthfm', type=str, 
-                        help='name of the model artifact to be finetuned')
+    parser.add_argument('--artifact_id', default='f0rtthfm:v22', type=str, 
+                        help='name and version of the model artifact to be finetuned')
 
     return parser
     
@@ -122,14 +122,12 @@ def main(args):
                                         )
     wandb.login()
     run = wandb.init()
-    artifact_wandb_path = 'brain-age/brain-age/model-f0rtthfm:v22'
+    artifact_wandb_path = 'brain-age/brain-age/model-' + args.artifact_id
     artifact = run.use_artifact(artifact_wandb_path, type='model')
     artifact_path = pathlib.Path(artifact.download())
-    ckpt_path = list(artifact_path.rglob("*"))[0]
+    ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
     checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
     model.load_state_dict(checkpoint['state_dict'])
-    print(model(torch.randn(args.batch_size, 1, 63, args.input_time * 135)))
-
     
     if args.standardization == "channelwise":
         norm = channelwise_norm
@@ -145,7 +143,6 @@ def main(args):
 
 
     # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
-    
     
     
     train_dataset = EEGDataset(['bap'], ['train'], transforms=composed_transforms, oversample=False)
