@@ -81,8 +81,10 @@ def get_args_parser():
     parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
                         help='learning rate to train the masked autoencoder with')    
     parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
-                        help='learning rate to train the regression head with')    
-
+                        help='learning rate to train the regression head with')
+    
+    parser.add_argument('--artifact_name', default='f0rtthfm', type=str, 
+                        help='name of the model artifact to be finetuned')
 
     return parser
     
@@ -120,15 +122,13 @@ def main(args):
                                         )
     wandb.login()
     run = wandb.init()
-    artifact_path = 'brain-age/brain-age/job-https___github.com_abdulkaderghandoura_brain-age.git_src_models_train.py:v57'
-    
-    #'tschwarz/brain_age_prediction/model-2kpep9o9:v337'
-    artifact_path = pathlib.Path(artifact_path)
-    artifact = run.use_artifact(artifact_path, type='model')
-    ckpt_path = pathlib.Path(artifact.download()) / "model.ckpt"
-    ckpt_path = pathlib.Path(f"artifacts/{artifact_path.stem}/model.ckpt")
-    checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
+    artifact_wandb_path = 'brain-age/brain-age/model-f0rtthfm:v22'
+    artifact = run.use_artifact(artifact_wandb_path, type='model')
+    artifact_path = pathlib.Path(artifact.download())
+    ckpt_path = list(artifact_path.rglob("*"))[0]
+    checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
     model.load_state_dict(checkpoint['state_dict'])
+    print(model(torch.randn(args.batch_size, 1, 63, args.input_time * 135)))
 
     
     if args.standardization == "channelwise":
@@ -145,7 +145,9 @@ def main(args):
 
 
     # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
-
+    
+    
+    
     train_dataset = EEGDataset(['bap'], ['train'], transforms=composed_transforms, oversample=False)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
@@ -177,27 +179,27 @@ def main(args):
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
 
 
-    trainer = pl.Trainer(
-                        overfit_batches=args.overfit_batches,
-                        deterministic=True, # to ensure reproducibility 
-                        devices=[0], 
-                        callbacks=[lr_monitor, 
-                        # checkpoint_callback, 
-                        # early_stop_callback
-                        ], 
-                        check_val_every_n_epoch=1,
-                        max_epochs=args.epochs, 
-                        accelerator="gpu", 
-                        logger=logger,
-                        precision="bf16-mixed", 
-                        # fast_dev_run=True, 
-                        )
-    trainer.fit(
-        model=model, 
-        train_dataloaders=train_dataloader, 
-        val_dataloaders=val_dataloader
-        )
-    wandb.finish()
+#     trainer = pl.Trainer(
+#                         overfit_batches=args.overfit_batches,
+#                         deterministic=True, # to ensure reproducibility 
+#                         devices=[0], 
+#                         callbacks=[lr_monitor, 
+#                         # checkpoint_callback, 
+#                         # early_stop_callback
+#                         ], 
+#                         check_val_every_n_epoch=1,
+#                         max_epochs=args.epochs, 
+#                         accelerator="gpu", 
+#                         logger=logger,
+#                         precision="bf16-mixed", 
+#                         # fast_dev_run=True, 
+#                         )
+#     trainer.fit(
+#         model=model, 
+#         train_dataloaders=train_dataloader, 
+#         val_dataloaders=val_dataloader
+#         )
+#     wandb.finish()
 
 
 if __name__ == '__main__':
