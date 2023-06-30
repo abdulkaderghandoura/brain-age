@@ -59,9 +59,9 @@ def get_args_parser():
     
     parser.add_argument('--embed_dim', default=384, type=int, 
                         help='embedding dimension of the encoder')
-    parser.add_argument('--depth', default=2, type=int, 
+    parser.add_argument('--depth', default=3, type=int, 
                         help='the number of blocks of the encoder')
-    parser.add_argument('--num_heads', default=4, type=int, 
+    parser.add_argument('--num_heads', default=6, type=int, 
                         help='the number of attention heads of the encoder')
     parser.add_argument('--decoder_embed_dim', default=256, type=int, 
                         help='the embedding dimension of the decoder')
@@ -87,7 +87,9 @@ def get_args_parser():
     
     parser.add_argument('--artifact_id', default='f0rtthfm:v22', type=str, 
                         help='name and version of the model artifact to be finetuned')
-
+    
+    parser.add_argument('--reinitialize_weights', default=False, type=bool, 
+                        help='reinitialize the weights randomly as a control')
     return parser
     
 
@@ -107,8 +109,8 @@ def main(args):
     #size of the input = # of seconds * sampling frequency 
 
     
-    model = MAE_AGE(img_size=(63, args.input_time * 135), \
-                                        patch_size=(21, 90), \
+    model = MaskedAutoencoderViT(img_size=(63, args.input_time * 135), \
+                                        patch_size=(63, 90), \
                                         in_chans=1, 
                                         embed_dim=args.embed_dim, 
                                         depth=args.depth, 
@@ -118,19 +120,21 @@ def main(args):
                                         decoder_num_heads=args.decoder_num_heads,
                                         mlp_ratio=args.mlp_ratio, 
                                         norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-                                        lr_mae=args.lr_mae,
-                                        lr_regressor=args.lr_regressor
+#                                         lr_mae=args.lr_mae,
+#                                         lr_regressor=args.lr_regressor
                                         # norm_pix_loss=True
                                         )
-    wandb.login()
-    run = wandb.init()
-    artifact_wandb_path = 'brain-age/brain-age/model-' + args.artifact_id
-    artifact = run.use_artifact(artifact_wandb_path, type='model')
-    artifact_path = pathlib.Path(artifact.download())
-    ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
-    checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
-    model.load_state_dict(checkpoint['state_dict'])
-    model = MAE_Finetuner(model, args.lr_mae)
+    if args.reinitialize_weights:
+        pass
+    else:
+        wandb.login()
+        run = wandb.init()
+        artifact_wandb_path = 'brain-age/brain-age/model-' + args.artifact_id
+        artifact = run.use_artifact(artifact_wandb_path, type='model')
+        artifact_path = pathlib.Path(artifact.download())
+        ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
+        checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
+        model.load_state_dict(checkpoint['state_dict'])
     
     
     
@@ -150,14 +154,14 @@ def main(args):
     # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
     
     
-    train_dataset = EEGDataset(['bap'], ['train'], transforms=composed_transforms, oversample=False)
+    train_dataset = EEGDataset(['hbn'], ['train'], transforms=composed_transforms, oversample=False)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['bap'], ['val'], transforms=composed_transforms, oversample=False)
+    val_dataset = EEGDataset(['hbn'], ['val'], transforms=composed_transforms, oversample=False)
     val_dataloader = DataLoader(val_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
