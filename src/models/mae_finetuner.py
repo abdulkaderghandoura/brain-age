@@ -24,9 +24,7 @@ class MAE_Finetuner(pl.LightningModule):
         self.r2 = R2Score()
         
     def forward(self, eegs):
-        # Forward pass through the pre-trained model
-        features = self.pretrained_model(eegs)
-        # Forward pass through the linear layer
+        *_, features = self.pretrained_model(eegs, mask_ratio=0.0)
         output = self.head(features)
         return output
     
@@ -50,6 +48,7 @@ class MAE_Finetuner(pl.LightningModule):
     
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
-        return optimizer
+        lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
+        return [optimizer], [lr_scheduler]
 
 
