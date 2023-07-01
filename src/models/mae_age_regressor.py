@@ -76,15 +76,15 @@ class MAE_AGE(pl.LightningModule):
 
     def configure_optimizers(self):
 
-        autoencoder_optimizer = AdamW(self.autoencoder.parameters(), lr=2.5e-4, betas=(0.9, 0.95), weight_decay=5e-2)
+        autoencoder_optimizer = AdamW(self.autoencoder.parameters(), lr=2.5e-4, betas=(0.9, 0.95))
         
-        auto_encoder_scheduler = LinearWarmupCosineAnnealingLR(autoencoder_optimizer, warmup_epochs=40, max_epochs=400)
+        auto_encoder_scheduler = LinearWarmupCosineAnnealingLR(autoencoder_optimizer, warmup_epochs=20, max_epochs=400)
         # auto_encoder_scheduler = CosineAnnealingWarmRestarts(autoencoder_optimizer, 400)
 
 
-        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=2.5e-4, weight_decay=5e-2)
+        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=2.5e-4)
         # regressor_scheduler = CosineAnnealingWarmRestarts(regressor_optimizer, 400)
-        regressor_scheduler = LinearWarmupCosineAnnealingLR(regressor_optimizer, warmup_epochs=40, max_epochs=400)
+        regressor_scheduler = LinearWarmupCosineAnnealingLR(regressor_optimizer, warmup_epochs=20, max_epochs=400)
         return [autoencoder_optimizer, regressor_optimizer], [auto_encoder_scheduler, regressor_scheduler]
 
     def training_step(self, batch, batch_idx):
@@ -209,7 +209,7 @@ class MAE_AGE(pl.LightningModule):
         expanded_mask = inverted_mask[0].unsqueeze(-1)
         masked_target = target[0] * expanded_mask
         
-        ch_idx = 13
+        ch_idx = 0
         target_channel = []
         masked_channel = []
         pred_channel = []
@@ -229,13 +229,13 @@ class MAE_AGE(pl.LightningModule):
 
       
         fig, ax = plt.subplots(4, figsize=(15, 5))
-        ax[0].plot(target_channel.cpu())
+        ax[0].plot(target_channel.cpu().float()[:1000])
         ax[0].set_title("target")
-        ax[1].plot(pred_channel.cpu().detach().numpy())
+        ax[1].plot(pred_channel.cpu().float().detach().numpy()[:1000])
         ax[1].set_title("reconstruction")
-        ax[2].plot(masked_channel.cpu())
+        ax[2].plot(masked_channel.cpu().float()[:1000])
         ax[2].set_title("masked")
-        ax[3].plot(mask_channel.cpu())
+        ax[3].plot(mask_channel.cpu().float()[:1000])
         ax[3].set_title("mask")
         fig.tight_layout()
         wandb.log({"signals_{}".format(split): fig})

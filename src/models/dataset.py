@@ -12,7 +12,7 @@ class EEGDataset(Dataset):
         self.transforms = transforms
 
         assert all(split in ['train', 'val', 'test'] for split in splits)
-        assert all(dataset_name in ['hbn', 'bap'] for dataset_name in dataset_names)
+        assert all(dataset_name in ['hbn', 'bap', 'lemon'] for dataset_name in dataset_names)
 
         # file_paths = np.array([])
         # age = np.array([])
@@ -20,7 +20,7 @@ class EEGDataset(Dataset):
         age_dict = {}
 
         for dataset_name in dataset_names:
-            dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed/v1.0')
+            dataset_path = os.path.join('/data0/practical-sose23/brain-age/data', dataset_name, 'preprocessed/v2.0')
             file_paths[dataset_name] = {}
             age_dict[dataset_name] = {}
             for split in splits:

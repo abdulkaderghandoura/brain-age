@@ -116,6 +116,7 @@ from timm.models.vision_transformer import PatchEmbed, Block
 import lightning.pytorch as pl
 
 import matplotlib.pyplot as plt 
+import wandb 
 
 # from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -308,23 +309,26 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
         return x
 
-    def training_step(self, batch):
-        eegs = batch
-        loss, _, _ = self(eegs)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+    def training_step(self, batch, batch_idx):
+        eegs, _ = batch
+        # eegs = torch.rand(256, 1, 63, 4050, generator=torch.Generator(0), device='cuda:0')
+        reconstruction_loss, pred, target, mask, latent = self(eegs)
+        self.log("train_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if batch_idx == 0:
+            self.visualize(mask, target, pred, 'train')
+        return reconstruction_loss
     
     def validation_step(self, batch, batch_idx): 
-        eegs = batch
-        loss, pred, _ = self(eegs)
+        eegs, _= batch
+        # eegs = torch.rand(256, 1, 63, 4050)
+        reconstruction_loss, pred, target, mask, latent = self(eegs)
         
-        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("pred std", (pred[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        target = self.patchify(eegs)
 
-        self.log("target std", (target[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+        if batch_idx == 0:
+            self.visualize(mask, target, pred, 'val')
+        return reconstruction_loss
 
     def forward_loss(self, imgs, pred, mask):
         """
@@ -357,9 +361,71 @@ class MaskedAutoencoderViT(pl.LightningModule):
         return loss, pred, target, mask, latent
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
+        optimizer = torch.optim.AdamW(self.parameters(), lr=2.5e-4, betas=(0.9, 0.95))
         # return optimizer
         scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [scheduler]
 
+
+    def visualize(self, mask, target, pred, split="train"): 
+        inverted_mask = 1 - mask
+        expanded_mask = inverted_mask[0].unsqueeze(-1)
+        masked_target = target[0] * expanded_mask
+        
+        ch_idx = 0
+        target_channel = []
+        masked_channel = []
+        pred_channel = []
+        mask_channel = []
+        for patch_idx in range(target.shape[1]):
+            pred_patch = pred[0, patch_idx, :].view(*self.patch_size)
+            target_patch = target[0, patch_idx, :].view(*self.patch_size)
+            target_channel.append(target_patch[ch_idx, :])
+            pred_channel.append(pred_patch[ch_idx, :])
+            masked_channel.append(target_patch[ch_idx, :] * (1-mask[0, patch_idx]))
+        target_channel = torch.cat(target_channel)
+        pred_channel = torch.cat(pred_channel)
+        masked_channel = torch.cat(masked_channel)
+        mask_channel = masked_channel == 0
+        
+
+
+      
+        fig, ax = plt.subplots(4, figsize=(15, 5))
+        ax[0].plot(target_channel.cpu().float()[:1000])
+        ax[0].set_title("target")
+        ax[1].plot(pred_channel.cpu().float().detach().numpy()[:1000])
+        ax[1].set_title("reconstruction")
+        ax[2].plot(masked_channel.cpu().float()[:1000])
+        ax[2].set_title("masked")
+        ax[3].plot(mask_channel.cpu().float()[:1000])
+        ax[3].set_title("mask")
+        fig.tight_layout()
+        wandb.log({"signals_{}".format(split): fig})
+
+    def visualize_flattened(self, mask, target, pred, split="train"): 
+        inverted_mask = 1 - mask
+        expanded_mask = inverted_mask[0].unsqueeze(-1)
+        masked_target = target[0] * expanded_mask
+
+
+        show_rate = int((masked_target.reshape(-1).shape[0] * 0.1 ) // 1)
+
+        reshaped_mask = expanded_mask.expand_as(target).float()[:show_rate].cpu()
+        flattened_mask = reshaped_mask.reshape(-1)[:show_rate].cpu()
+        flattened_masked_target = masked_target.view(-1)[:show_rate].cpu()
+        flattened_target = target[0].view(-1)[:show_rate].cpu()
+        flattened_pred = pred[0].view(-1)[:show_rate].cpu()
+
+        
+        fig, ax = plt.subplots(4, figsize=(15, 5))
+        ax[0].plot([i for i in range(flattened_target.shape[-1])], flattened_target.float())
+        ax[0].set_title("target")
+        ax[1].plot([i for i in range(flattened_masked_target.shape[-1])], flattened_masked_target.float())
+        ax[1].set_title("masked target")
+        ax[2].plot([i for i in range(flattened_mask.shape[-1])], flattened_mask.float())
+        ax[2].set_title("mask")
+        ax[3].plot([i for i in range(flattened_pred.shape[-1])], flattened_pred.float().detach().numpy())
+        ax[3].set_title("prediction")
+        wandb.log({"signals_{}".format(split): fig})
 
