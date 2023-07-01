@@ -145,8 +145,8 @@ def main(args):
         checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
         model.load_state_dict(checkpoint['state_dict'])
         run.finish()
+    print(f"========= \n checksum outside finetuner: {get_encoder_checksum(model.blocks)}")
     model = MAE_Finetuner(model, args.lr_mae, args.finetune_mode)
-    print(f"========= \n checksum: {get_encoder_checksum(model.pretrained_model.blocks)}")
     
     
     
