@@ -16,12 +16,13 @@ from torchmetrics import R2Score
 from mae_age_regressor import AgeRegressor
 
 class MAE_Finetuner(pl.LightningModule):
-    def __init__(self, pretrained_model, lr):
+    def __init__(self, pretrained_model, lr, mode="finetune_encoder"):
         super(MAE_Finetuner, self).__init__()
         self.pretrained_model = pretrained_model
         self.head = AgeRegressor(output_dim=1)
         self.lr = lr
         self.r2 = R2Score()
+        self.mode = mode
         
     def forward(self, eegs):
         features, *_ = self.pretrained_model.forward_encoder(eegs, mask_ratio=0.0, set_masking_seed=False)
@@ -47,7 +48,13 @@ class MAE_Finetuner(pl.LightningModule):
         return loss
     
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), lr=self.lr)
+        if self.mode == "linear_probe":
+            self.pretrained_model.eval()
+            optimizer = optim.AdamW(self.head.parameters(), lr=self.lr)
+        elif self.mode == "finetune_encoder":
+            optimizer = optim.AdamW(self.parameters(), lr=self.lr)
+        else:
+            print("select a valid mode for finetuning: linear_probe, finetune_encoder")
         lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [lr_scheduler]
 

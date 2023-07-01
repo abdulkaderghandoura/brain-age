@@ -90,6 +90,9 @@ def get_args_parser():
     
     parser.add_argument('--reinitialize_weights', default=False, type=bool, 
                         help='reinitialize the weights randomly as a control')
+    parser.add_argument('--finetune_mode', default="finetune_encoder", type=str, 
+                        help='select mode to fine tune different parts of the architecture: linear_probe, finetune_encoder')
+    
     return parser
     
 
@@ -142,7 +145,7 @@ def main(args):
         checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
         model.load_state_dict(checkpoint['state_dict'])
         run.finish()
-    model = MAE_Finetuner(model, args.lr_mae)
+    model = MAE_Finetuner(model, args.lr_mae, args.finetune_mode)
     print(f"========= \n checksum: {get_encoder_checksum(model.pretrained_model.blocks)}")
     
     
