@@ -36,7 +36,7 @@ def get_args_parser():
     parser.add_argument('--standardization', default='channelwise', type=str,
                        help='standardization applied to the model input, e.g. channelwise, channelwide')
     
-    parser.add_argument('--crop_len', default=4050, type=int,
+    parser.add_argument('--crop_len', default=1000, type=int,
                        help='# of time samples of the random crop applied to the model input')
     
     parser.add_argument('--clamp_val', default=20, type=float, 
@@ -86,12 +86,13 @@ def get_args_parser():
                         help='learning rate to train the regression head with')
     
     parser.add_argument('--artifact_id', default='f0rtthfm:v22', type=str, 
-                        help='name and version of the model artifact to be finetuned')
+                        help='name and version of the model artifact to be finetuned') # for lemon: 0q3jg1cd:v0
     
     parser.add_argument('--reinitialize_weights', default=False, type=bool, 
                         help='reinitialize the weights randomly as a control')
     return parser
     
+
 
 def main(args):
 
@@ -107,10 +108,14 @@ def main(args):
     np.random.seed(seed)
 
     #size of the input = # of seconds * sampling frequency 
-
+    def get_encoder_checksum(encoder):
+        checksum = 0
+        for params in encoder.parameters():
+            checksum += params.sum()
+        return checksum
     
-    model = MaskedAutoencoderViT(img_size=(63, args.input_time * 135), \
-                                        patch_size=(63, 90), \
+    model = MaskedAutoencoderViT(img_size=(61, args.input_time * 100), \
+                                        patch_size=(1, 100), \
                                         in_chans=1, 
                                         embed_dim=args.embed_dim, 
                                         depth=args.depth, 
@@ -125,6 +130,7 @@ def main(args):
                                         # norm_pix_loss=True
                                         )
     if args.reinitialize_weights:
+        wandb.login()
         pass
     else:
         wandb.login()
@@ -135,6 +141,9 @@ def main(args):
         ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
         checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
         model.load_state_dict(checkpoint['state_dict'])
+        run.finish()
+    model = MAE_Finetuner(model, args.lr_mae)
+    print(f"========= \n checksum: {get_encoder_checksum(model.pretrained_model.blocks)}")
     
     
     
@@ -145,7 +154,7 @@ def main(args):
     randomcrop = partial(_randomcrop, seq_len=args.crop_len)
     clamp = partial(_clamp, dev_val=args.clamp_val)
     composed_transforms = partial(_compose, transforms=[
-                                                        # randomcrop, 
+                                                        randomcrop, 
                                                         norm, 
                                                         clamp
                                                         ])
@@ -154,14 +163,14 @@ def main(args):
     # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
     
     
-    train_dataset = EEGDataset(['hbn'], ['train'], transforms=composed_transforms, oversample=False)
+    train_dataset = EEGDataset(['lemon'], ['train'], transforms=composed_transforms, oversample=False)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['hbn'], ['val'], transforms=composed_transforms, oversample=False)
+    val_dataset = EEGDataset(['lemon'], ['val'], transforms=composed_transforms, oversample=False)
     val_dataloader = DataLoader(val_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
@@ -169,7 +178,7 @@ def main(args):
                                 shuffle=True)
     
     wandb.login()
-    logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
+    logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name+"_"+args.artifact_id, 
                                     save_dir="wandb/", log_model=False)
     
     # early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
@@ -186,13 +195,14 @@ def main(args):
 
 
     trainer = pl.Trainer(
-                        overfit_batches=args.overfit_batches,
+                        # overfit_batches=args.overfit_batches,
                         deterministic=True, # to ensure reproducibility 
                         devices=[0], 
-                        callbacks=[lr_monitor, 
+                        callbacks=[lr_monitor,                         
                         # checkpoint_callback, 
                         # early_stop_callback
                         ], 
+                        # accumulate_grad_batches=32,
                         check_val_every_n_epoch=1,
                         max_epochs=args.epochs, 
                         accelerator="gpu", 
