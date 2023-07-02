@@ -15,10 +15,17 @@ import torch
 from torchmetrics import R2Score
 from mae_age_regressor import AgeRegressor
 
+def get_encoder_checksum(encoder):
+    checksum = 0
+    for params in encoder.parameters():
+        checksum += params.sum()
+    return checksum
+
 class MAE_Finetuner(pl.LightningModule):
     def __init__(self, pretrained_model, lr, mode="finetune_encoder"):
         super(MAE_Finetuner, self).__init__()
         self.pretrained_model = pretrained_model
+        print(f"========= \n checksum inside finetuner: {get_encoder_checksum(self.pretrained_model.blocks)}")
         self.head = AgeRegressor(output_dim=1)
         self.lr = lr
         self.r2 = R2Score()
