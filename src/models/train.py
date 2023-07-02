@@ -25,11 +25,7 @@ def get_args_parser():
                         help='Batch size')
     parser.add_argument('--epochs', default=400, type=int)
 
-    parser.add_argument('--train_dataset', default=['lemon'], type=list, nargs='+', 
-                        help='dataset for training eg. bap, hbn, lemon')
-    
-    parser.add_argument('--val_dataset', default=['lemon'], type=list, nargs='+', 
-                        help='dataset for training eg. bap, hbn, lemon')
+
     parser.add_argument('--standardization', default='channelwise', type=str,
                        help='standardization applied to the model input, e.g. channelwise, channelwide')
     
@@ -38,19 +34,41 @@ def get_args_parser():
     
     parser.add_argument('--clamp_val', default=4, type=float, 
                         help='the input to the model will be limited between (-clamp_val, clamp_val)')
+    # data parameters 
+
+    parser.add_argument('--regressor_train_dataset', default=['lemon'], type=list, nargs='+', 
+                        help='dataset for training eg. bap, hbn, lemon')
     
-    # model parameters 
+    parser.add_argument('--mae_train_dataset', default=['lemon'], type=list, nargs='+', 
+                        help='dataset for training eg. bap, hbn, lemon')
+    
+    parser.add_argument('--mae_val_dataset', default=['lemon'], type=list, nargs='+', 
+                        help='dataset for training eg. bap, hbn, lemon')
+
+    parser.add_argument('--num_channels', default=63, type=int,
+                        help='number of channels in the input')
     parser.add_argument('--input_time', default=10, type=int,
                         help='number of seconds in the input')
+    parser.add_argument('--fc', default=100, type=int,
+                        help='data sampling frequency')       
+    # model parameters 
 
-    parser.add_argument('--patch_size', default=100, type=int, # number of patches = 30s * 135 / 90 (in the case we are using patch_size[0] = 65)
-                        help='patch input size')
+    parser.add_argument('--patch_size_one', default=1, type=int,
+                         help='patch size for the space')
+
+    parser.add_argument('--patch_size_two', default=100, type=int,
+                        help='patch size for the time')
     
     parser.add_argument('--device', default='cuda:0',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
 
-    # to avoid a bottleneck 256 which is the number of cpus on the machine
+    parser.add_argument('--mae_lr', default=2.5e-4, type=float, 
+                        help='upper limit for the half cycle cosine lr scheduler for the autoencoder')
+    
+    parser.add_argument('--regressor_lr', default=2.5e-4, type=float, 
+                        help='upper limit for the half cycle cosine lr scheduler for the regressor')
+
     parser.add_argument('--num_workers', default=30, type=int, 
                         help='number of workers for the dataloaders')
     
@@ -66,16 +84,21 @@ def get_args_parser():
                         help='the number of blocks of the decoder')
     parser.add_argument('--decoder_num_heads', default=8, type=int, 
                     help='number of attention heads of the decoder')
-    parser.add_argument('--mlp_ratio', default=4, type=int, 
+    parser.add_argument('--mlp_ratio', default=4., type=float, 
                         help='ratio of mlp hidden dim to embedding dim')
     
     
-    parser.add_argument('--mae_age', default=True, type=bool, 
+    parser.add_argument('--mae_age', default=False, type=bool, 
                         help='run mae with age regression head or not')
     parser.add_argument('--oversample', default=False, type=bool, 
                         help='to oversample the minority dataset when training on target and external dataset ')
     
-
+    # callbacks
+    parser.add_argument('--checkpoint_callback', default=False, type=bool, 
+                        help='to save best and last checkpoints')
+    parser.add_argument('--early_stopping', default=False, type=bool, 
+                        help='to early stop the training when validation loss is stable ')
+    
     return parser
     
 
@@ -97,8 +120,8 @@ def main(args):
 
 
     if args.mae_age:
-        model = MAE_AGE(img_size=(61, args.input_time * 100), \
-                                            patch_size=(1, args.patch_size), \
+        model = MAE_AGE(img_size=(args.num_channels, args.input_time * args.fc), \
+                                            patch_size=(args.patch_size_one, args.patch_size_two), \
                                             in_chans=1, 
                                             embed_dim=args.embed_dim, 
                                             depth=args.depth, 
@@ -107,12 +130,14 @@ def main(args):
                                             decoder_depth=args.decoder_depth, 
                                             decoder_num_heads=args.decoder_num_heads,
                                             mlp_ratio=args.mlp_ratio, 
-                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
-                                            # norm_pix_loss=True
+                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6), 
+                                            # norm_pix_loss=True, 
+                                            mae_lr=args.mae_lr,
+                                            regressor_lr=args.regressor_lr
                                             )
     else: 
-        model = MaskedAutoencoderViT(img_size=(63, args.input_time * 100), \
-                                    patch_size=(1, args.patch_size), \
+        model = MaskedAutoencoderViT(img_size=(args.num_channels, args.input_time * args.fc), \
+                                    patch_size=(args.patch_size_one, args.patch_size_two), \
                                     in_chans=1, 
                                     embed_dim=args.embed_dim, 
                                     depth=args.depth, 
@@ -122,7 +147,8 @@ def main(args):
                                     decoder_num_heads=args.decoder_num_heads,
                                     mlp_ratio=args.mlp_ratio, 
                                     norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
-                                    # norm_pix_loss=True
+                                    # norm_pix_loss=True, 
+                                    lr=args.mae_lr
                                     )
 
     
@@ -139,26 +165,25 @@ def main(args):
                                                         ])
 
 
-    # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
-    autoencoder_train_dataset = EEGDataset(['lemon'], ['train'], transforms=composed_transforms, oversample=False)
+    autoencoder_train_dataset = EEGDataset(args.mae_train_dataset, ['train'], transforms=composed_transforms, oversample=False)
     autoencoder_train_dataloader = DataLoader(autoencoder_train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
-    regressor_train_dataset = EEGDataset(['lemon'], ['train'], transforms=composed_transforms, oversample=False)
+    regressor_train_dataset = EEGDataset(args.regressor_train_dataset, ['train'], transforms=composed_transforms, oversample=False)
     regressor_train_dataloader = DataLoader(regressor_train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['lemon'], ['val'], transforms=composed_transforms)
+    val_dataset = EEGDataset(args.mae_val_dataset, ['val'], transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers, 
                                         pin_memory=True, 
-                                        # shuffle=True
+                                        shuffle=True
                                         )
 
 
@@ -166,27 +191,31 @@ def main(args):
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
                                     save_dir="wandb/", log_model=True)
     
-    # early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
+    early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
 
-    # checkpoint_callback = ModelCheckpoint(
-    #     monitor='val_loss',  # Metric to monitor for saving the best model
-    #     filename='best_model',  # Filename pattern for saved models
-    #     save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
-    #     mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
-    #     dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
-    #     save_last=True
-    # )
+    checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss',  # Metric to monitor for saving the best model
+        filename='best_model',  # Filename pattern for saved models
+        save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
+        mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
+        dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
+        save_last=True
+    )
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
 
+    callbacks = [lr_monitor]
 
+    if args.early_stopping:
+        callbacks.append(early_stop_callback)
+    if args.checkpoint_callback:
+        callbacks.append(checkpoint_callback)
+
+    
     trainer = pl.Trainer(
                         # overfit_batches=1,
                         deterministic=True, # to ensure reproducibility 
                         devices=[0], 
-                        callbacks=[lr_monitor, 
-                        # checkpoint_callback, 
-                        # early_stop_callback
-                        ], 
+                        callbacks=callbacks, 
                         max_epochs=args.epochs, 
                         accelerator="gpu", 
                         logger=logger,
@@ -196,7 +225,7 @@ def main(args):
     trainer.fit(
         model=model, 
         train_dataloaders=autoencoder_train_dataloader, 
-        val_dataloaders=[autoencoder_train_dataloader, validation_dataloader]
+        val_dataloaders=validation_dataloader
         )
     wandb.finish()
 

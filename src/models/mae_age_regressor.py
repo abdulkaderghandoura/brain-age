@@ -45,10 +45,11 @@ class AgeRegressor(nn.Module):
         return x
 
 class MAE_AGE(pl.LightningModule):
-    def __init__(self, img_size=224, patch_size=16, in_chans=3,
+    def __init__(self, img_size=(63, 1000), patch_size=(1, 100), in_chans=1,
                 embed_dim=1024, depth=24, num_heads=16,
                 decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-                mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False):
+                mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, 
+                mae_lr=2.5e-4, regressor_lr=2.5e-4):
 
         super().__init__()
 
@@ -63,59 +64,48 @@ class MAE_AGE(pl.LightningModule):
         decoder_num_heads=decoder_num_heads, 
         mlp_ratio=mlp_ratio, 
         norm_layer=norm_layer
-        )
-        # # mask_ratio = 0.75 
-        # # visible_patches = int(self.autoencoder.patch_embed.num_patches * (1 - mask_ratio)) + 1
-        # rand_input = torch.randn_like(img_size)
-        # *_, rand_latent = self.autoencoder(rand_input.unsqueeze(0))      
+        )    
         self.age_regressor = AgeRegressor(output_dim=1)
         self.automatic_optimization = False
-        self.save_hyperparameters()
+
 
         self.r2 = R2Score()
+        self.mae_lr = mae_lr
+        self.regressor_lr = regressor_lr
+
+        self.save_hyperparameters()
 
     def configure_optimizers(self):
 
-        autoencoder_optimizer = AdamW(self.autoencoder.parameters(), lr=2.5e-4, betas=(0.9, 0.95))
-        
-        auto_encoder_scheduler = LinearWarmupCosineAnnealingLR(autoencoder_optimizer, warmup_epochs=20, max_epochs=400)
-        # auto_encoder_scheduler = CosineAnnealingWarmRestarts(autoencoder_optimizer, 400)
+        autoencoder_optimizer = AdamW(self.autoencoder.parameters(), lr=self.mae_lr, betas=(0.9, 0.95))
+        auto_encoder_scheduler = LinearWarmupCosineAnnealingLR(autoencoder_optimizer, warmup_epochs=40, max_epochs=400)
 
 
-        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=2.5e-4)
-        # regressor_scheduler = CosineAnnealingWarmRestarts(regressor_optimizer, 400)
-        regressor_scheduler = LinearWarmupCosineAnnealingLR(regressor_optimizer, warmup_epochs=20, max_epochs=400)
+        regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=self.regressor_lr)
+        regressor_scheduler = LinearWarmupCosineAnnealingLR(regressor_optimizer, warmup_epochs=40, max_epochs=400)
         return [autoencoder_optimizer, regressor_optimizer], [auto_encoder_scheduler, regressor_scheduler]
-
+    
     def training_step(self, batch, batch_idx):
+        
         eegs, age = batch
 
-        mae_optimizer, _ = self.optimizers() 
-        
+        mae_optimizer, _ = self.optimizers()
         reconstruction_loss, *_, latent = self.autoencoder(eegs)
-        # embedding = torch.squeeze(latent, dim=1)
-        # self.print(latent.size())
 
         mae_optimizer.zero_grad() 
         self.manual_backward(reconstruction_loss, retain_graph=True)
         mae_optimizer.step()
 
-        # age_prediction = self.age_regressor(latent).squeeze()
-        # age_loss = nn.functional.mse_loss(age_prediction.float(), age.float())
-        
-        # self.autoencoder.freeze()
-        # age_optimizer.zero_grad()
-        # self.manual_backward(age_loss)
-        # age_optimizer.step()
-        # self.autoencoder.unfreeze()
-
         self.log("train_mae_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        # self.log("train_age_loss", age_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        
+        if self.trainer.is_last_batch: 
+            mae_scheduler, _ = self.lr_schedulers()
+            mae_scheduler.step()
         return reconstruction_loss
 
-    def on_validation_epoch_end(self):
-        for lr_scheduler in self.lr_schedulers():
-            lr_scheduler.step()
+    # def training_epoch_end(self):
+    #     for lr_scheduler in self.lr_schedulers():
+    #         lr_scheduler.step()
     
     
     def evaluate_reconstruction_step(self, target_patch, pred_patch, split="train"):
@@ -154,8 +144,12 @@ class MAE_AGE(pl.LightningModule):
             opt_regressor.step()
 
             age_r2  = self.r2(pred_age.squeeze(), age.squeeze())
+            if self.trainer.is_last_batch: 
+                _, regressor_scheduler = self.lr_schedulers()
+                regressor_scheduler.step()
 
-        if dataloader_idx == 1:
+
+       if dataloader_idx == 1:
             
             reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs)
             pred_age = self.age_regressor(latent)
@@ -167,11 +161,6 @@ class MAE_AGE(pl.LightningModule):
         self.log(split+'_mae_loss', reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log(split+'_age_loss', age_loss, prog_bar=True, logger=True)
         self.log(split+'_age_r2', age_r2, prog_bar=True, logger=True)
-
-                
-        patch_idx = torch.where(mask[0, :])[0][0]
-        pred_patch = pred[0, patch_idx, :].view(*self.autoencoder.patch_size)
-        target_patch = target[0, patch_idx, :].view(*self.autoencoder.patch_size)
 
         if batch_idx == 0:
             self.visualize(mask, target, pred, split)

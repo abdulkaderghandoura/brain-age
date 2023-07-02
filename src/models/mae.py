@@ -125,10 +125,10 @@ class MaskedAutoencoderViT(pl.LightningModule):
     """ Masked Autoencoder with VisionTransformer backbone
     
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3,
+    def __init__(self, img_size=(63, 1000), patch_size=(1, 100), in_chans=1,
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False):
+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, lr=2.5e-4):
         super().__init__()
         
         self.img_size = img_size
@@ -164,11 +164,8 @@ class MaskedAutoencoderViT(pl.LightningModule):
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size[0]*patch_size[1]* in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
-        ## --- Brain Age regressor head ---- 
-        self.brain_age_regressor = nn.Linear(embed_dim, 1)
-
         self.norm_pix_loss = norm_pix_loss
-
+        self.lr = lr
         self.initialize_weights()
         self.save_hyperparameters()
 
@@ -311,7 +308,6 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         eegs, _ = batch
-        # eegs = torch.rand(256, 1, 63, 4050, generator=torch.Generator(0), device='cuda:0')
         reconstruction_loss, pred, target, mask, latent = self(eegs)
         self.log("train_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         if batch_idx == 0:
@@ -320,12 +316,8 @@ class MaskedAutoencoderViT(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx): 
         eegs, _= batch
-        # eegs = torch.rand(256, 1, 63, 4050)
         reconstruction_loss, pred, target, mask, latent = self(eegs)
-        
         self.log("val_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-
-
         if batch_idx == 0:
             self.visualize(mask, target, pred, 'val')
         return reconstruction_loss
@@ -354,15 +346,13 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
     def forward(self, imgs, mask_ratio=0.75):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
-        # brain_age = self.brain_age_regressor(latent)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
         target = self.patchify(imgs)
         return loss, pred, target, mask, latent
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=2.5e-4, betas=(0.9, 0.95))
-        # return optimizer
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, betas=(0.9, 0.95))
         scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [scheduler]
 
