@@ -147,9 +147,8 @@ class MAE_AGE(pl.LightningModule):
             if self.trainer.is_last_batch: 
                 _, regressor_scheduler = self.lr_schedulers()
                 regressor_scheduler.step()
-
-
-       if dataloader_idx == 1:
+                
+        if dataloader_idx == 1:
             
             reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs)
             pred_age = self.age_regressor(latent)

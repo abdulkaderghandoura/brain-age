@@ -146,7 +146,7 @@ def main(args):
                                     decoder_depth=args.decoder_depth, 
                                     decoder_num_heads=args.decoder_num_heads,
                                     mlp_ratio=args.mlp_ratio, 
-                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6)
+                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
                                     # norm_pix_loss=True, 
                                     lr=args.mae_lr
                                     )
@@ -222,10 +222,15 @@ def main(args):
                         precision="bf16-mixed", 
                         # fast_dev_run=True, 
                         )
+
+    if args.mae_age: 
+        val_data = [regressor_train_dataloader, validation_dataloader]
+    else: 
+        val_data = validation_dataloader
     trainer.fit(
         model=model, 
         train_dataloaders=autoencoder_train_dataloader, 
-        val_dataloaders=validation_dataloader
+        val_dataloaders=val_data
         )
     wandb.finish()
 
