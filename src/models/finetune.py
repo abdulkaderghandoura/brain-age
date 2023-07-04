@@ -116,22 +116,39 @@ def main(args):
         for params in encoder.parameters():
             checksum += params.sum()
         return checksum
-    
-    model = MaskedAutoencoderViT(img_size=(61, args.input_time * 100), \
-                                        patch_size=(1, 100), \
-                                        in_chans=1, 
-                                        embed_dim=args.embed_dim, 
-                                        depth=args.depth, 
-                                        num_heads=args.num_heads, 
-                                        decoder_embed_dim=args.decoder_embed_dim, 
-                                        decoder_depth=args.decoder_depth, 
-                                        decoder_num_heads=args.decoder_num_heads,
-                                        mlp_ratio=args.mlp_ratio, 
-                                        norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+    if args.mae_age:
+        model = MAE_AGE(img_size=(61, args.input_time * 100), \
+                                    patch_size=(1, 100), \
+                                    in_chans=1, 
+                                    embed_dim=args.embed_dim, 
+                                    depth=args.depth, 
+                                    num_heads=args.num_heads, 
+                                    decoder_embed_dim=args.decoder_embed_dim, 
+                                    decoder_depth=args.decoder_depth, 
+                                    decoder_num_heads=args.decoder_num_heads,
+                                    mlp_ratio=args.mlp_ratio, 
+                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
 #                                         lr_mae=args.lr_mae,
 #                                         lr_regressor=args.lr_regressor
-                                        # norm_pix_loss=True
-                                        )
+                                    # norm_pix_loss=True
+                                    )
+    else:
+        model = MaskedAutoencoderViT(img_size=(61, args.input_time * 100), \
+                                            patch_size=(1, 100), \
+                                            in_chans=1, 
+                                            embed_dim=args.embed_dim, 
+                                            depth=args.depth, 
+                                            num_heads=args.num_heads, 
+                                            decoder_embed_dim=args.decoder_embed_dim, 
+                                            decoder_depth=args.decoder_depth, 
+                                            decoder_num_heads=args.decoder_num_heads,
+                                            mlp_ratio=args.mlp_ratio, 
+                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+    #                                         lr_mae=args.lr_mae,
+    #                                         lr_regressor=args.lr_regressor
+                                            # norm_pix_loss=True
+                                            )
+                                    
     if args.reinitialize_weights:
         wandb.login()
         pass
