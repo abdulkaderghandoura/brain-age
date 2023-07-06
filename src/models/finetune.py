@@ -18,13 +18,13 @@ import numpy as np
 import pathlib
 # torch.cuda.empty_cache() 
 from mae_age_regressor import MAE_AGE
-from mae_finetuner import MAE_Finetuner
+from mae_finetuner import VisionTransformer
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE training', add_help=False)
     parser.add_argument('--experiment_name', default='finetuning')
     
-    parser.add_argument('--batch_size', default=256, type=int,
+    parser.add_argument('--batch_size', default=128, type=int,
                         help='Batch size')
     parser.add_argument('--epochs', default=400, type=int)
 
@@ -43,7 +43,7 @@ def get_args_parser():
                         help='the input to the model will be limited between (-clamp_val, clamp_val)')
     
     # model parameters 
-    parser.add_argument('--input_time', default=30, type=int,
+    parser.add_argument('--input_time', default=10, type=int,
                         help='number of seconds in the input')
 
     parser.add_argument('--patch_size', default=90, type=int, # number of patches = 30s * 135 / 90 (in the case we are using patch_size[0] = 65)
@@ -80,17 +80,17 @@ def get_args_parser():
     parser.add_argument('--overfit_batches', default=1.0, type=float, 
                         help='to debug model on a fraction of batches')
     
-    parser.add_argument('--lr_mae', default=1e-6, type=float, 
+    parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
                         help='learning rate to train the masked autoencoder with')    
     parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
                         help='learning rate to train the regression head with')
     
-    parser.add_argument('--artifact_id', default='f0rtthfm:v22', type=str, 
+    parser.add_argument('--artifact_id', default='68ww7y5i:v19', type=str, 
                         help='name and version of the model artifact to be finetuned') # for lemon: 0q3jg1cd:v0
     
     parser.add_argument('--reinitialize_weights', default=False, type=bool, 
                         help='reinitialize the weights randomly as a control')
-    parser.add_argument('--finetune_mode', default="finetune_encoder", type=str, 
+    parser.add_argument('--finetune_mode', default="linear_probe", type=str, 
                         help='select mode to fine tune different parts of the architecture: linear_probe, finetune_encoder')
     
     return parser
@@ -116,38 +116,41 @@ def main(args):
         for params in encoder.parameters():
             checksum += params.sum()
         return checksum
-    if args.mae_age:
-        model = MAE_AGE(img_size=(61, args.input_time * 100), \
-                                    patch_size=(1, 100), \
-                                    in_chans=1, 
-                                    embed_dim=args.embed_dim, 
-                                    depth=args.depth, 
-                                    num_heads=args.num_heads, 
-                                    decoder_embed_dim=args.decoder_embed_dim, 
-                                    decoder_depth=args.decoder_depth, 
-                                    decoder_num_heads=args.decoder_num_heads,
-                                    mlp_ratio=args.mlp_ratio, 
-                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-#                                         lr_mae=args.lr_mae,
-#                                         lr_regressor=args.lr_regressor
-                                    # norm_pix_loss=True
-                                    )
-    else:
-        model = MaskedAutoencoderViT(img_size=(61, args.input_time * 100), \
-                                            patch_size=(1, 100), \
-                                            in_chans=1, 
-                                            embed_dim=args.embed_dim, 
-                                            depth=args.depth, 
-                                            num_heads=args.num_heads, 
-                                            decoder_embed_dim=args.decoder_embed_dim, 
-                                            decoder_depth=args.decoder_depth, 
-                                            decoder_num_heads=args.decoder_num_heads,
-                                            mlp_ratio=args.mlp_ratio, 
-                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-    #                                         lr_mae=args.lr_mae,
-    #                                         lr_regressor=args.lr_regressor
-                                            # norm_pix_loss=True
-                                            )
+
+
+
+#     if args.mae_age:
+#         model = MAE_AGE(img_size=(61, args.input_time * 100), \
+#                                     patch_size=(1, 100), \
+#                                     in_chans=1, 
+#                                     embed_dim=args.embed_dim, 
+#                                     depth=args.depth, 
+#                                     num_heads=args.num_heads, 
+#                                     decoder_embed_dim=args.decoder_embed_dim, 
+#                                     decoder_depth=args.decoder_depth, 
+#                                     decoder_num_heads=args.decoder_num_heads,
+#                                     mlp_ratio=args.mlp_ratio, 
+#                                     norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+# #                                         lr_mae=args.lr_mae,
+# #                                         lr_regressor=args.lr_regressor
+#                                     # norm_pix_loss=True
+#                                     )
+#     else:
+#         model = MaskedAutoencoderViT(img_size=(61, args.input_time * 100), \
+#                                             patch_size=(1, 100), \
+#                                             in_chans=1, 
+#                                             embed_dim=args.embed_dim, 
+#                                             depth=args.depth, 
+#                                             num_heads=args.num_heads, 
+#                                             decoder_embed_dim=args.decoder_embed_dim, 
+#                                             decoder_depth=args.decoder_depth, 
+#                                             decoder_num_heads=args.decoder_num_heads,
+#                                             mlp_ratio=args.mlp_ratio, 
+#                                             norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+#     #                                         lr_mae=args.lr_mae,
+#     #                                         lr_regressor=args.lr_regressor
+#                                             # norm_pix_loss=True
+#                                             )
                                     
     if args.reinitialize_weights:
         wandb.login()
@@ -160,13 +163,35 @@ def main(args):
         artifact_path = pathlib.Path(artifact.download())
         ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
         checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
-        model.load_state_dict(checkpoint['state_dict'])
+        checkpoint_model = checkpoint['state_dict']
+
+        # from mae import interpolate_pos_embed
+        # interpolate position embedding
+        # interpolate_pos_embed(model, checkpoint_model)
+        # msg = model.load_state_dict(checkpoint_model, strict=False)
+        # print("------------->", msg)
         run.finish()
-    print(f"========= \n checksum outside finetuner: {get_encoder_checksum(model.blocks)}")
-    model = MAE_Finetuner(model, args.lr_mae, args.finetune_mode)
+
+    # model = MAE_Finetuner(model, args.lr_mae, args.finetune_mode)
     
     
-    
+    model = VisionTransformer(state_dict=checkpoint_model, \
+                                    img_size=(63, args.input_time * 100), \
+                                    patch_size=(1, 100), \
+                                    in_chans=1, 
+                                    embed_dim=args.embed_dim, 
+                                    depth=args.depth, 
+                                    num_heads=args.num_heads, 
+                                    # decoder_embed_dim=args.decoder_embed_dim, 
+                                    # decoder_depth=args.decoder_depth, 
+                                    # decoder_num_heads=args.decoder_num_heads,
+                                    mlp_ratio=args.mlp_ratio, 
+                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+#                                         lr_mae=args.lr_mae,
+#                                         lr_regressor=args.lr_regressor
+                                    # norm_pix_loss=True
+                                    )
+    print(f"========= \n checksum outside finetuner: {get_encoder_checksum(model.backbone.blocks)}")
     if args.standardization == "channelwise":
         norm = channelwise_norm
     elif args.standardization == "channelwide":
@@ -183,14 +208,14 @@ def main(args):
     # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
     
     
-    train_dataset = EEGDataset(['lemon'], ['train'], transforms=composed_transforms, oversample=False)
+    train_dataset = EEGDataset(['hbn', 'bap'], ['train'], transforms=composed_transforms, oversample=True)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['lemon'], ['val'], transforms=composed_transforms, oversample=False)
+    val_dataset = EEGDataset(['bap'], ['val'], transforms=composed_transforms, oversample=False)
     val_dataloader = DataLoader(val_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 

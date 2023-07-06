@@ -21,19 +21,37 @@ def get_encoder_checksum(encoder):
         checksum += params.sum()
     return checksum
 
-class MAE_Finetuner(pl.LightningModule):
-    def __init__(self, pretrained_model, lr, mode="finetune_encoder"):
-        super(MAE_Finetuner, self).__init__()
-        self.pretrained_model = pretrained_model
-        print(f"========= \n checksum inside finetuner: {get_encoder_checksum(self.pretrained_model.blocks)}")
+from functools import partial
+
+import torch
+import torch.nn as nn
+
+import timm.models.vision_transformer
+from timm.models.vision_transformer import PatchEmbed, Block
+import lightning.pytorch as pl
+
+from mae_age_regressor import AgeRegressor
+
+class VisionTransformer(pl.LightningModule):
+    """ Vision Transformer with support for global average pooling
+    """
+    def __init__(self, state_dict, global_pool=False, **kwargs):
+
+        super(VisionTransformer, self).__init__()
+        self.backbone = timm.models.vision_transformer.VisionTransformer(**kwargs)
+        del self.backbone.head
+        self.backbone.load_state_dict(state_dict, strict=False)
         self.head = AgeRegressor(output_dim=1)
-        self.lr = lr
-        self.r2 = R2Score()
-        self.mode = mode
+        print(f"========= \n checksum inside finetuner: {get_encoder_checksum(self.backbone.blocks)}")
+        self.mode = "finetune_encoder"
+        # self.mode='linear_probe'
         
-    def forward(self, eegs):
-        features, *_ = self.pretrained_model.forward_encoder(eegs, mask_ratio=0.0, set_masking_seed=False)
+        self.r2 = R2Score()
+
+    def forward(self, x):
+        features = self.backbone.forward_features(x)
         output = self.head(features)
+        
         return output
     
     def training_step(self, batch, batch_idx):
@@ -56,13 +74,15 @@ class MAE_Finetuner(pl.LightningModule):
     
     def configure_optimizers(self):
         if self.mode == "linear_probe":
-            self.pretrained_model.eval()
-            optimizer = optim.AdamW(self.head.parameters(), lr=self.lr)
+            self.backbone.eval()
+            optimizer = optim.AdamW(self.head.parameters(), lr=1e-2)
         elif self.mode == "finetune_encoder":
-            optimizer = optim.AdamW(self.parameters(), lr=self.lr)
+            optimizer = optim.AdamW(self.parameters(),  lr=2.5e-5)
         else:
             print("select a valid mode for finetuning: linear_probe, finetune_encoder")
         lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [lr_scheduler]
+
+
 
 
