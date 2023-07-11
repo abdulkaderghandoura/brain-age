@@ -75,12 +75,14 @@ class VisionTransformer(pl.LightningModule):
     def configure_optimizers(self):
         if self.mode == "linear_probe":
             self.backbone.eval()
-            optimizer = optim.AdamW(self.head.parameters(), lr=1e-2)
+            optimizer = optim.AdamW(self.head.parameters(), lr=1e-6)
         elif self.mode == "finetune_encoder":
-            optimizer = optim.AdamW(self.parameters(),  lr=2.5e-5)
+            optimizer = optim.AdamW(self.parameters(),  lr=1e-4, weight_decay=0.05)
         else:
             print("select a valid mode for finetuning: linear_probe, finetune_encoder")
-        lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
+        # lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
+        lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, max_epochs=12, warmup_epochs=3)
+
         return [optimizer], [lr_scheduler]
 
 

@@ -26,7 +26,7 @@ def get_args_parser():
     
     parser.add_argument('--batch_size', default=128, type=int,
                         help='Batch size')
-    parser.add_argument('--epochs', default=400, type=int)
+    parser.add_argument('--epochs', default=12, type=int)
 
     parser.add_argument('--train_dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
@@ -46,7 +46,7 @@ def get_args_parser():
     parser.add_argument('--input_time', default=10, type=int,
                         help='number of seconds in the input')
 
-    parser.add_argument('--patch_size', default=90, type=int, # number of patches = 30s * 135 / 90 (in the case we are using patch_size[0] = 65)
+    parser.add_argument('--patch_size', default=100, type=int, # number of patches = 30s * 135 / 90 (in the case we are using patch_size[0] = 65)
                         help='patch input size')
     
     parser.add_argument('--device', default='cuda:0',
@@ -162,7 +162,7 @@ def main(args):
         artifact = run.use_artifact(artifact_wandb_path, type='model')
         artifact_path = pathlib.Path(artifact.download())
         ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
-        checkpoint = torch.load(ckpt_path, map_location=torch.device('cuda:0'))
+        checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
         checkpoint_model = checkpoint['state_dict']
 
         # from mae import interpolate_pos_embed
@@ -191,6 +191,7 @@ def main(args):
 #                                         lr_regressor=args.lr_regressor
                                     # norm_pix_loss=True
                                     )
+    
     print(f"========= \n checksum outside finetuner: {get_encoder_checksum(model.backbone.blocks)}")
     if args.standardization == "channelwise":
         norm = channelwise_norm
@@ -253,8 +254,10 @@ def main(args):
                         accelerator="gpu", 
                         logger=logger,
                         precision="bf16-mixed", 
+                        gradient_clip_val=1
                         # fast_dev_run=True, 
                         )
+    print(model)
     trainer.fit(
         model=model, 
         train_dataloaders=train_dataloader, 
