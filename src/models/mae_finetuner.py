@@ -35,21 +35,28 @@ from mae_age_regressor import AgeRegressor
 class VisionTransformer(pl.LightningModule):
     """ Vision Transformer with support for global average pooling
     """
-    def __init__(self, state_dict, global_pool=False, **kwargs):
+    def __init__(self, state_dict, mode, global_pool=True, **kwargs):
 
         super(VisionTransformer, self).__init__()
         self.backbone = timm.models.vision_transformer.VisionTransformer(**kwargs)
         del self.backbone.head
         self.backbone.load_state_dict(state_dict, strict=False)
-        self.head = AgeRegressor(output_dim=1)
+        self.head = AgeRegressor(input_dim=kwargs["embed_dim"], output_dim=1)
+        self.backbone.patch_drop = nn.Identity()
+        self.global_pool = global_pool
+
         print(f"========= \n checksum inside finetuner: {get_encoder_checksum(self.backbone.blocks)}")
-        self.mode = "finetune_encoder"
+        self.mode = mode
         # self.mode='linear_probe'
         
         self.r2 = R2Score()
 
     def forward(self, x):
         features = self.backbone.forward_features(x)
+        # if self.global_pool:
+        #     features = features[:, 1:, :].mean(dim=1)
+        # else:
+        #     features = feature[:, 0]
         output = self.head(features)
         
         return output
@@ -75,13 +82,13 @@ class VisionTransformer(pl.LightningModule):
     def configure_optimizers(self):
         if self.mode == "linear_probe":
             self.backbone.eval()
-            optimizer = optim.AdamW(self.head.parameters(), lr=1e-6)
+            optimizer = optim.AdamW(self.head.parameters(), lr=1e-3)
+            lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 10)
         elif self.mode == "finetune_encoder":
-            optimizer = optim.AdamW(self.parameters(),  lr=1e-4, weight_decay=0.05)
+            optimizer = optim.AdamW(self.parameters(),  lr=1e-3)#, weight_decay=0.05)
+            lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, max_epochs=20, warmup_epochs=6)
         else:
             print("select a valid mode for finetuning: linear_probe, finetune_encoder")
-        # lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
-        lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, max_epochs=12, warmup_epochs=3)
 
         return [optimizer], [lr_scheduler]
 
