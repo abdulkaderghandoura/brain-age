@@ -28,16 +28,16 @@ from torchmetrics import R2Score
 #         return age
     
 class AgeRegressor(nn.Module):
-    def __init__(self, output_dim):
+    def __init__(self, input_dim, output_dim):
         super(AgeRegressor, self).__init__()
         
         self.flatten = nn.Flatten()
-        self.norm = nn.LazyBatchNorm1d()
-        self.linear = nn.LazyLinear(output_dim)
+        self.norm = nn.BatchNorm1d(input_dim)
+        self.linear = nn.Linear(input_dim, output_dim)
         self.act = nn.ReLU()
 
     def forward(self, x):
-        x = self.flatten(x)
+        # x = self.flatten(x)
         x = self.norm(x)
         x = self.linear(x)
         x = self.act(x)
@@ -68,7 +68,7 @@ class MAE_AGE(pl.LightningModule):
         # # visible_patches = int(self.autoencoder.patch_embed.num_patches * (1 - mask_ratio)) + 1
         # rand_input = torch.randn_like(img_size)
         # *_, rand_latent = self.autoencoder(rand_input.unsqueeze(0))      
-        self.age_regressor = AgeRegressor(output_dim=1)
+        self.age_regressor = AgeRegressor(input_dim=embed_dim, output_dim=1)
         self.automatic_optimization = False
         self.save_hyperparameters()
 
