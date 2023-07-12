@@ -26,7 +26,7 @@ def get_args_parser():
     
     parser.add_argument('--batch_size', default=128, type=int,
                         help='Batch size')
-    parser.add_argument('--epochs', default=12, type=int)
+    parser.add_argument('--epochs', default=60, type=int)
 
     parser.add_argument('--train_dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
@@ -85,7 +85,7 @@ def get_args_parser():
     parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
                         help='learning rate to train the regression head with')
     
-    parser.add_argument('--artifact_id', default='68ww7y5i:v19', type=str, 
+    parser.add_argument('--artifact_id', default='h4vidwgf:v210', type=str, 
                         help='name and version of the model artifact to be finetuned') # for lemon: 0q3jg1cd:v0
     
     parser.add_argument('--reinitialize_weights', default=False, type=bool, 
@@ -118,39 +118,6 @@ def main(args):
         return checksum
 
 
-
-#     if args.mae_age:
-#         model = MAE_AGE(img_size=(61, args.input_time * 100), \
-#                                     patch_size=(1, 100), \
-#                                     in_chans=1, 
-#                                     embed_dim=args.embed_dim, 
-#                                     depth=args.depth, 
-#                                     num_heads=args.num_heads, 
-#                                     decoder_embed_dim=args.decoder_embed_dim, 
-#                                     decoder_depth=args.decoder_depth, 
-#                                     decoder_num_heads=args.decoder_num_heads,
-#                                     mlp_ratio=args.mlp_ratio, 
-#                                     norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-# #                                         lr_mae=args.lr_mae,
-# #                                         lr_regressor=args.lr_regressor
-#                                     # norm_pix_loss=True
-#                                     )
-#     else:
-#         model = MaskedAutoencoderViT(img_size=(61, args.input_time * 100), \
-#                                             patch_size=(1, 100), \
-#                                             in_chans=1, 
-#                                             embed_dim=args.embed_dim, 
-#                                             depth=args.depth, 
-#                                             num_heads=args.num_heads, 
-#                                             decoder_embed_dim=args.decoder_embed_dim, 
-#                                             decoder_depth=args.decoder_depth, 
-#                                             decoder_num_heads=args.decoder_num_heads,
-#                                             mlp_ratio=args.mlp_ratio, 
-#                                             norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-#     #                                         lr_mae=args.lr_mae,
-#     #                                         lr_regressor=args.lr_regressor
-#                                             # norm_pix_loss=True
-#                                             )
                                     
     if args.reinitialize_weights:
         wandb.login()
@@ -171,28 +138,7 @@ def main(args):
         # msg = model.load_state_dict(checkpoint_model, strict=False)
         # print("------------->", msg)
         run.finish()
-
-    # model = MAE_Finetuner(model, args.lr_mae, args.finetune_mode)
     
-    
-    model = VisionTransformer(state_dict=checkpoint_model, \
-                                    img_size=(63, args.input_time * 100), \
-                                    patch_size=(1, 100), \
-                                    in_chans=1, 
-                                    embed_dim=args.embed_dim, 
-                                    depth=args.depth, 
-                                    num_heads=args.num_heads, 
-                                    # decoder_embed_dim=args.decoder_embed_dim, 
-                                    # decoder_depth=args.decoder_depth, 
-                                    # decoder_num_heads=args.decoder_num_heads,
-                                    mlp_ratio=args.mlp_ratio, 
-                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-#                                         lr_mae=args.lr_mae,
-#                                         lr_regressor=args.lr_regressor
-                                    # norm_pix_loss=True
-                                    )
-    
-    print(f"========= \n checksum outside finetuner: {get_encoder_checksum(model.backbone.blocks)}")
     if args.standardization == "channelwise":
         norm = channelwise_norm
     elif args.standardization == "channelwide":
@@ -204,12 +150,9 @@ def main(args):
                                                         norm, 
                                                         clamp
                                                         ])
-
-
-    # train_dataset = EEGDataset(args.train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
     
     
-    train_dataset = EEGDataset(['hbn', 'bap'], ['train'], transforms=composed_transforms, oversample=True)
+    train_dataset = EEGDataset(['bap'], ['train'], transforms=composed_transforms, oversample=True)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
@@ -238,15 +181,65 @@ def main(args):
     #     save_last=True
     # )
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
-
-
+    linear_probe_model = VisionTransformer(state_dict=checkpoint_model, \
+                                        img_size=(63, args.input_time * 100), \
+                                        patch_size=(1, 100), \
+                                        in_chans=1, 
+                                        embed_dim=args.embed_dim, 
+                                        depth=args.depth, 
+                                        num_heads=args.num_heads, 
+                                        mlp_ratio=args.mlp_ratio, 
+                                        norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+                                        mode="linear_probe"
+                                        )
+    
+    print("model checksum of the trained age regressor", 
+            get_encoder_checksum(linear_probe_model.head))      
     trainer = pl.Trainer(
                         # overfit_batches=args.overfit_batches,
                         deterministic=True, # to ensure reproducibility 
                         devices=[0], 
                         callbacks=[lr_monitor,                         
-                        # checkpoint_callback, 
-                        # early_stop_callback
+                        ], 
+                        # accumulate_grad_batches=32,
+                        check_val_every_n_epoch=1,
+                        max_epochs=20, 
+                        accelerator="gpu", 
+                        logger=logger,
+                        precision="bf16-mixed", 
+                        gradient_clip_val=1
+                        )
+    print(linear_probe_model)
+    trainer.fit(
+        model=linear_probe_model, 
+        train_dataloaders=train_dataloader, 
+        val_dataloaders=val_dataloader
+        )
+    wandb.finish()
+    wandb.login()
+    logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name+"_"+args.artifact_id, 
+                                    save_dir="wandb/", log_model=False)
+    finetuning_model = VisionTransformer(state_dict=checkpoint_model, \
+                                    img_size=(63, args.input_time * 100), \
+                                    patch_size=(1, 100), \
+                                    in_chans=1, 
+                                    embed_dim=args.embed_dim, 
+                                    depth=args.depth, 
+                                    num_heads=args.num_heads, 
+                                    mlp_ratio=args.mlp_ratio, 
+                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+                                    mode="finetune_encoder")
+    print("model checksum of the trained age regressor", 
+            get_encoder_checksum(linear_probe_model.head))                                
+    finetuning_model.head = linear_probe_model.head
+    print("model checksum of the transferred trained age regressor", 
+            get_encoder_checksum(finetuning_model.head))
+    
+    trainer = pl.Trainer(
+                        # overfit_batches=args.overfit_batches,
+                        deterministic=True, # to ensure reproducibility 
+                        devices=[0], 
+                        callbacks=[lr_monitor,                         
                         ], 
                         # accumulate_grad_batches=32,
                         check_val_every_n_epoch=1,
@@ -255,14 +248,13 @@ def main(args):
                         logger=logger,
                         precision="bf16-mixed", 
                         gradient_clip_val=1
-                        # fast_dev_run=True, 
                         )
-    print(model)
     trainer.fit(
-        model=model, 
+        model=finetuning_model, 
         train_dataloaders=train_dataloader, 
         val_dataloaders=val_dataloader
         )
+
     wandb.finish()
 
 
