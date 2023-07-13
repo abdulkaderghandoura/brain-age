@@ -233,16 +233,19 @@ class MaskedAutoencoderViT(pl.LightningModule):
         imgs = x.reshape(shape=(x.shape[0], num_channels, h * p1, w * p2))
         return imgs
 
-    def random_masking(self, x, mask_ratio):
+    def random_masking(self, x, mask_ratio, set_masking_seed=False):
         """
         Perform per-sample random masking by per-sample shuffling.
         Per-sample shuffling is done by argsort random noise.
         x: [N, L, D], sequence
         """
+
         N, L, D = x.shape  # batch, length, dim
         len_keep = int(L * (1 - mask_ratio))
-        
-        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
+        if set_masking_seed: 
+            noise = torch.rand(N, L, generator=torch.Generator(0), device=x.device)
+        else:
+            noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
         
         # sort noise for each sample
         ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
@@ -260,14 +263,14 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
         return x_masked, mask, ids_restore
 
-    def forward_encoder(self, x, mask_ratio):
+    def forward_encoder(self, x, mask_ratio, set_masking_seed=False):
         x = self.patch_embed(x)
 
         # add pos embed w/o cls token
         x = x + self.pos_embed[:, 1:, :]
 
         # masking: length -> length * mask_ratio
-        x, mask, ids_restore = self.random_masking(x, mask_ratio)
+        x, mask, ids_restore = self.random_masking(x, mask_ratio, set_masking_seed)
 
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
@@ -344,8 +347,9 @@ class MaskedAutoencoderViT(pl.LightningModule):
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
         return loss
 
-    def forward(self, imgs, mask_ratio=0.75):
-        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
+
+    def forward(self, imgs, mask_ratio=0.75, set_masking_seed=False):
+        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio, set_masking_seed)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
         target = self.patchify(imgs)
