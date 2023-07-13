@@ -8,7 +8,7 @@ def _compose(x, transforms):
 
 def _randomcrop(x, seq_len):
     idx = torch.randint(low=0, high=x.shape[-1]-seq_len, size=(1,))
-    return x[:, idx:idx+seq_len]
+    return x[:, :, idx:idx+seq_len]
 
 def totensor(x):
     return torch.tensor(x).float()
