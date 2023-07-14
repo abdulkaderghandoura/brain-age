@@ -9,7 +9,7 @@ import wandb
 from functools import partial
 import sys
 sys.path.append('../utils/')
-from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, _compose
+from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, _compose, amplitude_flip, channels_dropout, time_masking, gaussian_noise
 from dataset import EEGDataset
 from mae import MaskedAutoencoderViT
 
@@ -26,7 +26,7 @@ def get_args_parser():
     
     parser.add_argument('--batch_size', default=128, type=int,
                         help='Batch size')
-    parser.add_argument('--epochs', default=60, type=int)
+    parser.add_argument('--epochs', default=150, type=int)
 
     parser.add_argument('--train_dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
@@ -41,7 +41,24 @@ def get_args_parser():
     
     parser.add_argument('--clamp_val', default=20, type=float, 
                         help='the input to the model will be limited between (-clamp_val, clamp_val)')
+
+    parser.add_argument('--p_amplitude_flip', default=0.0, type=float,
+                       help='probability of flipping the amplitude of the signal')
     
+    parser.add_argument('--p_channels_dropout', default=0.0, type=float, 
+                        help='probability of dropping a number of channels')
+    
+    parser.add_argument('--max_channels_to_dropout', default=0, type=int, 
+                        help='maximum number of channels to dropout in channels_dropout')
+    
+    parser.add_argument('--p_time_masking', default=0.0, type=float,
+                       help='# of time samples of the random crop applied to the model input')
+    
+    parser.add_argument('--max_mask_size', default=0, type=int,
+                       help='# of time samples masked across all channels')
+    
+    parser.add_argument('--p_gaussian_noise', default=0.0, type=float, 
+                        help='probability for adding gaussian noise to the model input')
     # model parameters 
     parser.add_argument('--input_time', default=10, type=int,
                         help='number of seconds in the input')
@@ -118,7 +135,7 @@ def main(args):
         return checksum
 
 
-                                    
+
     if args.reinitialize_weights:
         wandb.login()
         pass
@@ -145,21 +162,39 @@ def main(args):
         norm = channelwide_norm 
     randomcrop = partial(_randomcrop, seq_len=args.crop_len)
     clamp = partial(_clamp, dev_val=args.clamp_val)
-    composed_transforms = partial(_compose, transforms=[
+
+
+    rand_amplitude_flip = partial(amplitude_flip, prob=args.p_amplitude_flip)
+    rand_channels_dropout = partial(channels_dropout, max_channels=args.max_channels_to_dropout, prob=args.p_channels_dropout)
+    rand_time_masking = partial(time_masking, max_mask_size=args.max_mask_size, prob=args.p_time_masking)
+    rand_gaussian_noise = partial(gaussian_noise, prob=args.p_gaussian_noise)
+
+
+    composed_transforms_train = partial(_compose, transforms=[
+                                                        randomcrop, 
+                                                        norm, 
+                                                        clamp,
+                                                        rand_amplitude_flip,
+                                                        rand_channels_dropout,
+                                                        # rand_time_masking,
+                                                        rand_gaussian_noise
+                                                        ])
+    
+
+    composed_transforms_val = partial(_compose, transforms=[
                                                         randomcrop, 
                                                         norm, 
                                                         clamp
                                                         ])
-    
-    
-    train_dataset = EEGDataset(['bap'], ['train'], transforms=composed_transforms, oversample=True)
+
+    train_dataset = EEGDataset(['hbn'], ['train'], transforms=composed_transforms_train, oversample=True)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['bap'], ['val'], transforms=composed_transforms, oversample=False)
+    val_dataset = EEGDataset(['hbn'], ['val'], transforms=composed_transforms_val, oversample=False)
     val_dataloader = DataLoader(val_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 

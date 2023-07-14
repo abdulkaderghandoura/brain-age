@@ -53,10 +53,6 @@ class VisionTransformer(pl.LightningModule):
 
     def forward(self, x):
         features = self.backbone.forward_features(x)
-        # if self.global_pool:
-        #     features = features[:, 1:, :].mean(dim=1)
-        # else:
-        #     features = feature[:, 0]
         output = self.head(features)
         
         return output
@@ -82,14 +78,12 @@ class VisionTransformer(pl.LightningModule):
     def configure_optimizers(self):
         if self.mode == "linear_probe":
             self.backbone.eval()
-            optimizer = optim.AdamW(self.head.parameters(), lr=1e-3)
-            lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 10)
+            optimizer = optim.AdamW(self.head.parameters(), lr=1e-2)
         elif self.mode == "finetune_encoder":
-            optimizer = optim.AdamW(self.parameters(),  lr=1e-3)#, weight_decay=0.05)
-            lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, max_epochs=20, warmup_epochs=6)
+            optimizer = optim.AdamW(self.parameters(),  lr=1e-4)#, weight_decay=0.05)
         else:
             print("select a valid mode for finetuning: linear_probe, finetune_encoder")
-
+        lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, max_epochs=60, warmup_epochs=6)
         return [optimizer], [lr_scheduler]
 
 
