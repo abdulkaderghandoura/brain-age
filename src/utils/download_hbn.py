@@ -47,13 +47,14 @@ def main():
                 try:
                     urllib.request.urlretrieve(url, out_name)
                     good_subjects.append(sub)
+                    print(out_name)
                 except Exception as err:
                     print(err)
                     print(f"release: {release}\nfile: {out_name}")
 
     # Save a log of subject IDs whose EEG data was successfully downloaded
     good_subs_df = pd.DataFrame(dict(subject=list(set(good_subjects))))
-    good_subs_df.to_csv('good_subjects.csv')
+    good_subs_df.to_csv(dest_path / 'good_subjects.csv')
 
 if __name__ == "__main__":
     main()

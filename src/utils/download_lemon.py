@@ -15,8 +15,8 @@ def main():
     url_eeg = 'https://ftp.gwdg.de/pub/misc/MPI-Leipzig_Mind-Brain-Body-LEMON/EEG_MPILMBB_LEMON/EEG_Raw_BIDS_ID/'
 
     # Provide a mapping between initial and current subject IDs
-    url_namemap = 'https://fcp-indi.s3.amazonaws.com/data/Projects/INDI/MPI-LEMON/name_match.csv'
-    urllib.request.urlretrieve(url_namemap, dest_path)
+    url_name_map = 'https://fcp-indi.s3.amazonaws.com/data/Projects/INDI/MPI-LEMON/name_match.csv'
+    urllib.request.urlretrieve(url_name_map, dest_path / "name_match.csv")
     name_match = pd.read_csv(dest_path / "name_match.csv")
 
     subjects = sorted(name_match.Initial_ID)
@@ -38,6 +38,7 @@ def main():
             try:
                 urllib.request.urlretrieve(url, out_name)
                 good_subjects.append(sub)
+                print(out_name)
             except Exception as err:
                 print(err)
 
