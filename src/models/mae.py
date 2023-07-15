@@ -116,6 +116,7 @@ from timm.models.vision_transformer import PatchEmbed, Block
 import lightning.pytorch as pl
 
 import matplotlib.pyplot as plt 
+import wandb 
 
 # from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -124,10 +125,10 @@ class MaskedAutoencoderViT(pl.LightningModule):
     """ Masked Autoencoder with VisionTransformer backbone
     
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3,
+    def __init__(self, img_size=(63, 1000), patch_size=(1, 100), in_chans=1,
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False):
+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, lr=2.5e-4):
         super().__init__()
         
         self.img_size = img_size
@@ -163,11 +164,8 @@ class MaskedAutoencoderViT(pl.LightningModule):
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size[0]*patch_size[1]* in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
-        ## --- Brain Age regressor head ---- 
-        self.brain_age_regressor = nn.Linear(embed_dim, 1)
-
         self.norm_pix_loss = norm_pix_loss
-
+        self.lr = lr
         self.initialize_weights()
         self.save_hyperparameters()
 
@@ -235,16 +233,19 @@ class MaskedAutoencoderViT(pl.LightningModule):
         imgs = x.reshape(shape=(x.shape[0], num_channels, h * p1, w * p2))
         return imgs
 
-    def random_masking(self, x, mask_ratio):
+    def random_masking(self, x, mask_ratio, set_masking_seed=False):
         """
         Perform per-sample random masking by per-sample shuffling.
         Per-sample shuffling is done by argsort random noise.
         x: [N, L, D], sequence
         """
+
         N, L, D = x.shape  # batch, length, dim
         len_keep = int(L * (1 - mask_ratio))
-        
-        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
+        if set_masking_seed: 
+            noise = torch.rand(N, L, generator=torch.Generator(0), device=x.device)
+        else:
+            noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
         
         # sort noise for each sample
         ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
@@ -262,14 +263,14 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
         return x_masked, mask, ids_restore
 
-    def forward_encoder(self, x, mask_ratio):
+    def forward_encoder(self, x, mask_ratio, set_masking_seed=False):
         x = self.patch_embed(x)
 
         # add pos embed w/o cls token
         x = x + self.pos_embed[:, 1:, :]
 
         # masking: length -> length * mask_ratio
-        x, mask, ids_restore = self.random_masking(x, mask_ratio)
+        x, mask, ids_restore = self.random_masking(x, mask_ratio, set_masking_seed)
 
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
@@ -308,23 +309,21 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
         return x
 
-    def training_step(self, batch):
-        eegs = batch
-        loss, _, _ = self(eegs)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+    def training_step(self, batch, batch_idx):
+        eegs, _ = batch
+        reconstruction_loss, pred, target, mask, latent = self(eegs)
+        self.log("train_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if batch_idx == 0:
+            self.visualize(mask, target, pred, 'train')
+        return reconstruction_loss
     
     def validation_step(self, batch, batch_idx): 
-        eegs = batch
-        loss, pred, _ = self(eegs)
-        
-        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("pred std", (pred[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-
-        target = self.patchify(eegs)
-
-        self.log("target std", (target[0][0].std()), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+        eegs, _= batch
+        reconstruction_loss, pred, target, mask, latent = self(eegs)
+        self.log("val_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if batch_idx == 0:
+            self.visualize(mask, target, pred, 'val')
+        return reconstruction_loss
 
     def forward_loss(self, imgs, pred, mask):
         """
@@ -348,18 +347,79 @@ class MaskedAutoencoderViT(pl.LightningModule):
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
         return loss
 
-    def forward(self, imgs, mask_ratio=0.75):
-        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
-        # brain_age = self.brain_age_regressor(latent)
+
+    def forward(self, imgs, mask_ratio=0.75, set_masking_seed=False):
+        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio, set_masking_seed)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
         target = self.patchify(imgs)
         return loss, pred, target, mask, latent
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.95))
-        # return optimizer
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, betas=(0.9, 0.95))
         scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [scheduler]
 
+
+    def visualize(self, mask, target, pred, split="train"): 
+        inverted_mask = 1 - mask
+        expanded_mask = inverted_mask[0].unsqueeze(-1)
+        masked_target = target[0] * expanded_mask
+        
+        ch_idx = 0
+        target_channel = []
+        masked_channel = []
+        pred_channel = []
+        mask_channel = []
+        for patch_idx in range(target.shape[1]):
+            pred_patch = pred[0, patch_idx, :].view(*self.patch_size)
+            target_patch = target[0, patch_idx, :].view(*self.patch_size)
+            target_channel.append(target_patch[ch_idx, :])
+            pred_channel.append(pred_patch[ch_idx, :])
+            masked_channel.append(target_patch[ch_idx, :] * (1-mask[0, patch_idx]))
+        target_channel = torch.cat(target_channel)
+        pred_channel = torch.cat(pred_channel)
+        masked_channel = torch.cat(masked_channel)
+        mask_channel = masked_channel == 0
+        
+
+
+      
+        fig, ax = plt.subplots(4, figsize=(15, 5))
+        ax[0].plot(target_channel.cpu().float()[:1000])
+        ax[0].set_title("target")
+        ax[1].plot(pred_channel.cpu().float().detach().numpy()[:1000])
+        ax[1].set_title("reconstruction")
+        ax[2].plot(masked_channel.cpu().float()[:1000])
+        ax[2].set_title("masked")
+        ax[3].plot(mask_channel.cpu().float()[:1000])
+        ax[3].set_title("mask")
+        fig.tight_layout()
+        wandb.log({"signals_{}".format(split): fig})
+
+    def visualize_flattened(self, mask, target, pred, split="train"): 
+        inverted_mask = 1 - mask
+        expanded_mask = inverted_mask[0].unsqueeze(-1)
+        masked_target = target[0] * expanded_mask
+
+
+        show_rate = int((masked_target.reshape(-1).shape[0] * 0.1 ) // 1)
+
+        reshaped_mask = expanded_mask.expand_as(target).float()[:show_rate].cpu()
+        flattened_mask = reshaped_mask.reshape(-1)[:show_rate].cpu()
+        flattened_masked_target = masked_target.view(-1)[:show_rate].cpu()
+        flattened_target = target[0].view(-1)[:show_rate].cpu()
+        flattened_pred = pred[0].view(-1)[:show_rate].cpu()
+
+        
+        fig, ax = plt.subplots(4, figsize=(15, 5))
+        ax[0].plot([i for i in range(flattened_target.shape[-1])], flattened_target.float())
+        ax[0].set_title("target")
+        ax[1].plot([i for i in range(flattened_masked_target.shape[-1])], flattened_masked_target.float())
+        ax[1].set_title("masked target")
+        ax[2].plot([i for i in range(flattened_mask.shape[-1])], flattened_mask.float())
+        ax[2].set_title("mask")
+        ax[3].plot([i for i in range(flattened_pred.shape[-1])], flattened_pred.float().detach().numpy())
+        ax[3].set_title("prediction")
+        wandb.log({"signals_{}".format(split): fig})
 
