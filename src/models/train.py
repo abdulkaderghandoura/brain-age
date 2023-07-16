@@ -50,6 +50,10 @@ def get_args_parser():
     parser.add_argument('--pixel_norm', default=False, type=bool, 
                         help='normalize the output pixels before computing the loss')
     # dataset parameters 
+    parser.add_argument('--dataset_path', default='/data0/practical-sose23/brain-age/data', type=str, 
+                        help='path that contains all the datasets')
+    parser.add_argument('--dataset_version', default='v3.0', type=str, 
+                        help='version of the preprocessed data')
     parser.add_argument('--mae_train_dataset', default=['bap'], type=str, nargs='+', 
                         help='dataset for training mae eg. bap, hbn, lemon')
     parser.add_argument('--mae_val_dataset', default=['bap'], type=str, nargs='+', 
@@ -149,21 +153,34 @@ def main(args):
                                                         clamp
                                                         ])
     # Initializing training and validation dataloaders 
-    autoencoder_train_dataset = EEGDataset(args.mae_train_dataset, ['train'], transforms=composed_transforms, oversample=args.oversample)
+    autoencoder_train_dataset = EEGDataset(args.dataset_path, 
+                                            args.mae_train_dataset, 
+                                            ['train'], 
+                                            args.dataset_version,
+                                            transforms=composed_transforms, 
+                                            oversample=args.oversample)
     autoencoder_train_dataloader = DataLoader(autoencoder_train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
     if args.mae_age:
-        regressor_train_dataset = EEGDataset(args.regressor_train_dataset, ['train'], transforms=composed_transforms)
+        regressor_train_dataset = EEGDataset(args.dataset_path, 
+                                            args.regressor_train_dataset, 
+                                            ['train'], 
+                                            args.dataset_version,
+                                            transforms=composed_transforms)
         regressor_train_dataloader = DataLoader(regressor_train_dataset, 
                                     batch_size=args.batch_size, 
                                     num_workers=args.num_workers, 
                                     pin_memory=True, 
                                     shuffle=True)
 
-    val_dataset = EEGDataset(args.mae_val_dataset, ['val'], transforms=composed_transforms)
+    val_dataset = EEGDataset(args.dataset_path, 
+                            args.mae_val_dataset, 
+                            ['val'], 
+                            args.dataset_version,
+                            transforms=composed_transforms)
     validation_dataloader =  DataLoader(val_dataset, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers, 
