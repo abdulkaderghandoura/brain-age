@@ -45,14 +45,14 @@ def get_args_parser():
                         help='ratio of mlp hidden dim to embedding dim')
     parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
                         help='learning rate to train the masked autoencoder with')    
-    parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
+    parser.add_argument('--lr_regressor', default=1e-2, type=float, 
                         help='learning rate to train the regression head with')
     parser.add_argument('--pixel_norm', default=False, type=bool, 
                         help='normalize the output pixels before computing the loss')
     # dataset parameters 
-    parser.add_argument('--dataset_path', default='/data0/practical-sose23/brain-age/data', type=str, 
+    parser.add_argument('--datasets_path', default='/data0/practical-sose23/brain-age/data', type=str, 
                         help='path that contains all the datasets')
-    parser.add_argument('--dataset_version', default='v3.0', type=str, 
+    parser.add_argument('--dataset_version', default='v2.0', type=str, 
                         help='version of the preprocessed data')
     parser.add_argument('--mae_train_dataset', default=['bap'], type=str, nargs='+', 
                         help='dataset for training mae eg. bap, hbn, lemon')
@@ -153,7 +153,7 @@ def main(args):
                                                         clamp
                                                         ])
     # Initializing training and validation dataloaders 
-    autoencoder_train_dataset = EEGDataset(args.dataset_path, 
+    autoencoder_train_dataset = EEGDataset(args.datasets_path, 
                                             args.mae_train_dataset, 
                                             ['train'], 
                                             args.dataset_version,
@@ -165,7 +165,7 @@ def main(args):
                                 pin_memory=True, 
                                 shuffle=True)
     if args.mae_age:
-        regressor_train_dataset = EEGDataset(args.dataset_path, 
+        regressor_train_dataset = EEGDataset(args.datasets_path, 
                                             args.regressor_train_dataset, 
                                             ['train'], 
                                             args.dataset_version,
@@ -176,7 +176,7 @@ def main(args):
                                     pin_memory=True, 
                                     shuffle=True)
 
-    val_dataset = EEGDataset(args.dataset_path, 
+    val_dataset = EEGDataset(args.datasets_path, 
                             args.mae_val_dataset, 
                             ['val'], 
                             args.dataset_version,
