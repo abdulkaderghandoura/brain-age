@@ -1,25 +1,22 @@
 import argparse
-from torch.utils.data import DataLoader
-import torch 
-import lightning.pytorch as pl
-import os
-
-# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
 import wandb
 from functools import partial
+import torch 
+import numpy as np
+import os
+import pathlib
+import lightning.pytorch as pl
+from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
+from torch.utils.data import DataLoader
 import sys
 sys.path.append('../utils/')
 import copy
-from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, _compose, amplitude_flip, channels_dropout, time_masking, gaussian_noise
-from dataset import EEGDataset
-from mae import MaskedAutoencoderViT
-
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
-import numpy as np
-import pathlib
-# torch.cuda.empty_cache() 
-from mae_age_regressor import MAE_AGE
+from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, _compose, \
+                        amplitude_flip, channels_dropout, time_masking, gaussian_noise
+# from mae_age_regressor import MAE_AGE
 from mae_finetuner import VisionTransformer
+from mae import MaskedAutoencoderViT
+from dataset import EEGDataset
 
 def get_args_parser():
 
@@ -35,10 +32,12 @@ def get_args_parser():
                         help='name and version of the model artifact to be finetuned')
     parser.add_argument('--lr', default=[1e-2, 1e-4], type=float, nargs='+', 
                         help='learning rates for linear probing and finetuning, respectively')
-    parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+', help=('select mode for fine tuning. Can be one of: ',
+    parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+', help=('Select mode for fine tuning. Can be one of: ',
                         '[linear_probe], [linear_probe, finetune_encoder], [linear_probe, finetune_final_layer], [random_initialization]'))
     parser.add_argument('--augment_data', default=False, type=bool, 
-                            help='augment the training dataset')
+                            help='Augment the training dataset')
+    parser.add_argument('--gradient_clip_val', default=1.0, type=float, 
+                            help='Clip gradients at specified value for stable training')
 
     # model parameters 
     parser.add_argument('--patch_size_one', default=1, type=int,
@@ -59,10 +58,10 @@ def get_args_parser():
                     help='number of attention heads of the decoder')
     parser.add_argument('--mlp_ratio', default=4., type=float, 
                         help='ratio of mlp hidden dim to embedding dim')
-    parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
-                        help='learning rate to train the masked autoencoder with')    
-    parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
-                        help='learning rate to train the regression head with')
+    # parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
+    #                     help='learning rate to train the masked autoencoder with')    
+    # parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
+    #                     help='learning rate to train the regression head with')
     parser.add_argument('--pixel_norm', default=False, type=bool, 
                         help='normalize the output pixels before computing the loss')
     
@@ -244,16 +243,16 @@ def main(args):
         if "finetune" in mode:
             model.head = head
 
-        trainer = pl.Trainer(overfit_batches=args.overfit_batches,  
-                            deterministic=True,
+        trainer = pl.Trainer(overfit_batches=args.overfit_batches,  # for fast debugging
+                            deterministic=True, # for reproducibility
                             devices=[0], 
                             callbacks=callbacks,
                             check_val_every_n_epoch=1,
                             max_epochs=epochs, 
                             accelerator="gpu", 
                             logger=logger,
-                            precision="bf16-mixed", 
-                            gradient_clip_val=1)
+                            precision="bf16-mixed", # for speed
+                            gradient_clip_val=args.gradient_clip_val)
         print(f"\n===============================\n")
         print(f"Training with mode: {mode}")
         print(f"\n===============================\n")
