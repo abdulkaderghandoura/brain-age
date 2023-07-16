@@ -22,7 +22,7 @@ from mae_finetuner import VisionTransformer
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE training', add_help=False)
-    parser.add_argument('--experiment_name', default='finetuning')
+    parser.add_argument('--experiment_name', default='downstream_task')
     
     parser.add_argument('--batch_size', default=128, type=int,
                         help='Batch size')
@@ -185,88 +185,47 @@ def main(args):
                                 pin_memory=True, 
                                 shuffle=True)
     
-    wandb.login()
-    logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name+"_"+args.artifact_id, 
-                                    save_dir="wandb/", log_model=False)
-    
-    lr_monitor = LearningRateMonitor(logging_interval='epoch')
-    linear_probe_model = VisionTransformer(state_dict=checkpoint_model, \
-                                        img_size=(63, args.input_time * 100), \
-                                        patch_size=(1, 100), \
-                                        in_chans=1, 
-                                        embed_dim=args.embed_dim, 
-                                        depth=args.depth, 
-                                        num_heads=args.num_heads, 
-                                        mlp_ratio=args.mlp_ratio, 
-                                        norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-                                        mode="linear_probe",
-                                        max_epochs=80)
-    
-    print("model checksum of the trained age regressor", 
-            get_encoder_checksum(linear_probe_model.head))      
-    trainer = pl.Trainer(
-                        # overfit_batches=args.overfit_batches,
-                        deterministic=True, # to ensure reproducibility 
-                        devices=[0], 
-                        callbacks=[lr_monitor,                         
-                        ], 
-                        # accumulate_grad_batches=32,
-                        check_val_every_n_epoch=1,
-                        max_epochs=80, 
-                        accelerator="gpu", 
-                        logger=logger,
-                        precision="bf16-mixed", 
-                        gradient_clip_val=1
-                        )
-    print(linear_probe_model)
-    trainer.fit(
-        model=linear_probe_model, 
-        train_dataloaders=train_dataloader, 
-        val_dataloaders=val_dataloader
-        )
-    wandb.finish()
-    wandb.login()
-    logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name+"_"+args.artifact_id, 
-                                    save_dir="wandb/", log_model=False)
-    finetuning_model = VisionTransformer(state_dict=checkpoint_model, \
-                                    img_size=(63, args.input_time * 100), \
-                                    patch_size=(1, 100), \
-                                    in_chans=1, 
-                                    embed_dim=args.embed_dim, 
-                                    depth=args.depth, 
-                                    num_heads=args.num_heads, 
-                                    mlp_ratio=args.mlp_ratio, 
-                                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-                                    mode="finetune_final_layer",
-                                    max_epochs=args.epochs)
-    print("model checksum of the trained age regressor", 
-            get_encoder_checksum(linear_probe_model.head))                                
-    finetuning_model.head = linear_probe_model.head
-    print("model checksum of the transferred trained age regressor", 
-            get_encoder_checksum(finetuning_model.head))
-    
-    trainer = pl.Trainer(
-                        # overfit_batches=args.overfit_batches,
-                        deterministic=True, # to ensure reproducibility 
-                        devices=[0], 
-                        callbacks=[lr_monitor,                         
-                        ], 
-                        # accumulate_grad_batches=32,
-                        check_val_every_n_epoch=1,
-                        max_epochs=args.epochs, 
-                        accelerator="gpu", 
-                        logger=logger,
-                        precision="bf16-mixed", 
-                        gradient_clip_val=1
-                        )
-    trainer.fit(
-        model=finetuning_model, 
-        train_dataloaders=train_dataloader, 
-        val_dataloaders=val_dataloader
-        )
+    for mode, lr, epochs in zip(args.mode, args.lr, args.epochs):
 
-    wandb.finish()
+        wandb.login()
+        logger = pl.loggers.WandbLogger(project="brain-age", name="f{args.experiment_name}_{mode}_{args.artifact_id}", 
+                                        save_dir="wandb/", log_model=False)
+    
+        lr_monitor = LearningRateMonitor(logging_interval='epoch')
+        linear_probe_model = VisionTransformer(state_dict=checkpoint_model, \
+                                            img_size=(63, args.input_time * 100), \
+                                            patch_size=(1, 100), \
+                                            in_chans=1, 
+                                            embed_dim=args.embed_dim, 
+                                            depth=args.depth, 
+                                            num_heads=args.num_heads, 
+                                            mlp_ratio=args.mlp_ratio, 
+                                            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+                                            mode=mode,
+                                            max_epochs=epochs
+                                            lr=lr)
 
+        print("model checksum of the trained age regressor", 
+                get_encoder_checksum(linear_probe_model.head))      
+        trainer = pl.Trainer(
+                            deterministic=True, # to ensure reproducibility 
+                            devices=[0], 
+                            callbacks=[lr_monitor,                         
+                            ], 
+                            check_val_every_n_epoch=1,
+                            max_epochs=80, 
+                            accelerator="gpu", 
+                            logger=logger,
+                            precision="bf16-mixed", 
+                            gradient_clip_val=1
+                            )
+        print(f"Training with mode: {mode}")
+        trainer.fit(
+            model=linear_probe_model, 
+            train_dataloaders=train_dataloader, 
+            val_dataloaders=val_dataloader
+            )
+        wandb.finish()
 
 if __name__ == '__main__':
     args = get_args_parser()
