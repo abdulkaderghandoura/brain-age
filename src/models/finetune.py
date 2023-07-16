@@ -26,7 +26,7 @@ def get_args_parser():
     
     parser.add_argument('--batch_size', default=128, type=int,
                         help='Batch size')
-    parser.add_argument('--epochs', default=150, type=int)
+    parser.add_argument('--epochs', default=500, type=int)
 
     parser.add_argument('--train_dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
@@ -116,7 +116,7 @@ def get_args_parser():
 
 def main(args):
 
-    # using a CUDA device ('NVIDIA A40') that has Tensor Cores. 
+    # using a CUDA device ('NVIDIA A80') that has Tensor Cores. 
     # To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')`
     # which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
 
@@ -174,10 +174,10 @@ def main(args):
                                                         randomcrop, 
                                                         norm, 
                                                         clamp,
-                                                        rand_amplitude_flip,
-                                                        rand_channels_dropout,
+                                                        # rand_amplitude_flip,
+                                                        # rand_channels_dropout,
                                                         # rand_time_masking,
-                                                        rand_gaussian_noise
+                                                        # rand_gaussian_noise
                                                         ])
     
 
@@ -187,14 +187,14 @@ def main(args):
                                                         clamp
                                                         ])
 
-    train_dataset = EEGDataset(['hbn'], ['train'], transforms=composed_transforms_train, oversample=True)
+    train_dataset = EEGDataset(datasets_path="/data0/practical-sose23/brain-age/data/", dataset_names=['bap'], splits=['train'], d_version="v3.0", transforms=composed_transforms_train, oversample=True)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
 
-    val_dataset = EEGDataset(['hbn'], ['val'], transforms=composed_transforms_val, oversample=False)
+    val_dataset = EEGDataset(datasets_path="/data0/practical-sose23/brain-age/data/", dataset_names=['bap'], splits=['val'], d_version="v3.0", transforms=composed_transforms_val, oversample=False)
     val_dataloader = DataLoader(val_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
@@ -225,8 +225,8 @@ def main(args):
                                         num_heads=args.num_heads, 
                                         mlp_ratio=args.mlp_ratio, 
                                         norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-                                        mode="linear_probe"
-                                        )
+                                        mode="linear_probe",
+                                        max_epochs=80)
     
     print("model checksum of the trained age regressor", 
             get_encoder_checksum(linear_probe_model.head))      
@@ -238,7 +238,7 @@ def main(args):
                         ], 
                         # accumulate_grad_batches=32,
                         check_val_every_n_epoch=1,
-                        max_epochs=20, 
+                        max_epochs=80, 
                         accelerator="gpu", 
                         logger=logger,
                         precision="bf16-mixed", 
@@ -263,7 +263,8 @@ def main(args):
                                     num_heads=args.num_heads, 
                                     mlp_ratio=args.mlp_ratio, 
                                     norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-                                    mode="finetune_encoder")
+                                    mode="finetune_final_layer",
+                                    max_epochs=args.epochs)
     print("model checksum of the trained age regressor", 
             get_encoder_checksum(linear_probe_model.head))                                
     finetuning_model.head = linear_probe_model.head
