@@ -48,7 +48,7 @@ class MAE_AGE(pl.LightningModule):
                 decoder_embed_dim=256, decoder_depth=2, decoder_num_heads=8,
                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, 
                 lr_mae=1e-4, lr_regressor=2.5e-4):
-                """
+        """
         Initialize the MAE_AGE model.
 
         Args:
@@ -102,7 +102,7 @@ class MAE_AGE(pl.LightningModule):
         """
 
         autoencoder_optimizer = AdamW(self.autoencoder.parameters(), lr=self.mae_lr, betas=(0.9, 0.95))
-        auto_encoder_scheduler = LinearWarmupCosineAnnealingLR(autoencoder_optimizer, warmup_epochs=10, max_epochs=100)
+        auto_encoder_scheduler = LinearWarmupCosineAnnealingLR(autoencoder_optimizer, warmup_epochs=40, max_epochs=400)
 
 
         regressor_optimizer = AdamW(self.age_regressor.parameters(), lr=self.regressor_lr)
@@ -131,7 +131,7 @@ class MAE_AGE(pl.LightningModule):
         # computing fwd path for mae and reconstruction loss 
         reconstruction_loss, *_, latent = self.autoencoder(eegs)
         # backpropagating mae using the reconstruction loss 
-        self.manual_backward(reconstruction_loss, retain_graph=True)
+        self.manual_backward(reconstruction_loss)
         # mae optimizer step 
         mae_optimizer.step()
         # logging the reconstruction loss 
@@ -182,7 +182,6 @@ class MAE_AGE(pl.LightningModule):
         _, opt_regressor = self.optimizers() 
 
         if dataloader_idx == 0: # dataloader used to train the regressor 
-
             with torch.no_grad():
                 # masked autoencoder fwd path 
                 reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs, set_masking_seed=False)
@@ -201,7 +200,7 @@ class MAE_AGE(pl.LightningModule):
             age_r2  = self.r2(pred_age.squeeze(), age.squeeze())
 
                 
-        if dataloader_idx == 1: # dataloader used to validate the age regressor and masked autoencode r
+        if dataloader_idx == 1: # dataloader used to validate the age regressor and masked autoencoder
             
             # masked autoencoder fwd path 
             reconstruction_loss, pred, target, mask, latent = self.autoencoder(eegs, set_masking_seed=False)
@@ -226,6 +225,6 @@ class MAE_AGE(pl.LightningModule):
         
         if batch_idx == 0:
             # visualize the reconstruction 
-            visualize(self.EEG_size[1], mask, target, pred, split)
+            visualize(self.autoencoder.EEG_size[1], self.autoencoder.patch_size, mask, target, pred, split)
 
         return reconstruction_loss
