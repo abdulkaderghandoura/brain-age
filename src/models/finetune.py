@@ -109,7 +109,7 @@ def get_args_parser():
     parser.add_argument('--reinitialize_weights', default=False, type=bool, 
                         help='reinitialize the weights randomly as a control')
     parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+',
-                        help='select mode to fine tune: linear_probe, finetune_encoder')
+                        help='select mode to fine tune: linear_probe, finetune_encoder, finetune_final_layer, random_initialization')
     parser.add_argument('--augment_data', default=False, type=bool, 
                             help='augment the training dataset')
 
@@ -139,7 +139,7 @@ def main(args):
     artifact_path = pathlib.Path(artifact.download())
     ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
     checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
-    checkpoint_model = checkpoint['state_dict']
+    state_dict = checkpoint['state_dict']
     run.finish()
     
     if args.standardization == "channelwise":
@@ -177,6 +177,9 @@ def main(args):
     print(f"\n===============================\n")
     print(args.mode, args.lr, args.epochs)
     print(f"\n===============================\n")
+    
+    if "random_initialization" in args.mode:
+        assert len(args.mode) == 1, "only one mode can be passed when training from random weights"
 
     for mode, lr, epochs in zip(args.mode, args.lr, args.epochs):
         
@@ -194,8 +197,11 @@ def main(args):
         
         if "finetune" in mode:
             head = copy.deepcopy(model.head)
+        if mode == "random_initialization":
+            state_dict = None
+            mode = "finetune_encoder"
 
-        model = VisionTransformer(state_dict=checkpoint_model, \
+        model = VisionTransformer(state_dict=state_dict, \
                                             img_size=(63, args.input_time * 100), \
                                             patch_size=(1, 100), \
                                             in_chans=1, 
