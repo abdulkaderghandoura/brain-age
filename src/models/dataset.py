@@ -10,7 +10,7 @@ class EEGDataset(Dataset):
         self.transforms = transforms
 
         assert all(split in ['train', 'val', 'test'] for split in splits)
-        assert all(dataset_name in ['hbn', 'bap', 'lemon'] for dataset_name in dataset_names)
+        assert all(dataset_name in ['hbn', 'bap'] for dataset_name in dataset_names)
 
         file_paths = {}
         age_dict = {}
@@ -75,5 +75,5 @@ class EEGDataset(Dataset):
 
         data = eeg_npy.astype(np.float32)
         data = torch.unsqueeze(torch.tensor(data), 0)
-
+        
         return self.transforms(data), target
