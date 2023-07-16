@@ -1,7 +1,7 @@
 import wandb 
 import torch 
-
-def visualize(num_samples, mask, target, pred, split="train"): 
+import matplotlib.pyplot as plt
+def visualize(num_samples, patch_size, mask, target, pred, split="train"): 
         """
         Visualizes the target, reconstructed, masked, and mask signals.
 
@@ -26,8 +26,8 @@ def visualize(num_samples, mask, target, pred, split="train"):
         pred_channel = []
         mask_channel = []
         for patch_idx in range(target.shape[1]):
-            pred_patch = pred[0, patch_idx, :].view(*self.patch_size)
-            target_patch = target[0, patch_idx, :].view(*self.patch_size)
+            pred_patch = pred[0, patch_idx, :].view(patch_size)
+            target_patch = target[0, patch_idx, :].view(patch_size)
             # Extract channel of interest from target patch and predicted patch 
             target_channel.append(target_patch[ch_idx, :])
             pred_channel.append(pred_patch[ch_idx, :])

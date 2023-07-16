@@ -341,7 +341,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
         reconstruction_loss, pred, target, mask, latent = self(eegs)
         self.log("train_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         if batch_idx == 0:
-            visualize(self.EEG_size[1], mask, target, pred, 'train')
+            visualize(self.EEG_size[1], self.patch_size, mask, target, pred, 'train')
         return reconstruction_loss
     
     def validation_step(self, batch, batch_idx): 
@@ -360,7 +360,7 @@ class MaskedAutoencoderViT(pl.LightningModule):
         reconstruction_loss, pred, target, mask, latent = self(eegs)
         self.log("val_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         if batch_idx == 0:
-            visualize(self.EEG_size[1], mask, target, pred, 'val')
+            visualize(self.EEG_size[1], self.patch_size, mask, target, pred, 'val')
         return reconstruction_loss
 
     def configure_optimizers(self):
