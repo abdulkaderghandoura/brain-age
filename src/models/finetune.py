@@ -201,7 +201,16 @@ def main(args):
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
     callbacks.append(lr_monitor)
 
-
+    if args.checkpoint_callback:
+        checkpoint_callback = ModelCheckpoint(
+            monitor='val_loss',  # Metric to monitor for saving the best model
+            filename='best_model',  # Filename pattern for saved models
+            save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
+            mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
+            dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
+            save_last=True
+        )
+        callbacks.append(checkpoint_callback)
     
     print(f"\n===============================\n")
     print(args.mode, args.lr, args.epochs)
