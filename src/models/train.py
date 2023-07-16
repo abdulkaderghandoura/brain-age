@@ -25,13 +25,13 @@ def get_args_parser():
     # model parameters 
     parser.add_argument('--mae_age', default=False, type=bool, 
                         help='run mae with age regression head or not')
-    parser.add_argument('--patch_size_one', default=63, type=int,
+    parser.add_argument('--patch_size_one', default=1, type=int,
                          help='patch size for the channel space')
     parser.add_argument('--patch_size_two', default=100, type=int,
                         help='patch size for the time')
     parser.add_argument('--embed_dim', default=384, type=int, 
                         help='embedding dimension of the encoder')
-    parser.add_argument('--depth', default=2, type=int, 
+    parser.add_argument('--depth', default=3, type=int, 
                         help='the number of blocks of the encoder')
     parser.add_argument('--num_heads', default=4, type=int, 
                         help='the number of attention heads of the encoder')
@@ -50,11 +50,11 @@ def get_args_parser():
     parser.add_argument('--pixel_norm', default=False, type=bool, 
                         help='normalize the output pixels before computing the loss')
     # dataset parameters 
-    parser.add_argument('--mae_train_dataset', default=['bap'], type=list, nargs='+', 
+    parser.add_argument('--mae_train_dataset', default=['bap'], type=str, nargs='+', 
                         help='dataset for training mae eg. bap, hbn, lemon')
-    parser.add_argument('--mae_val_dataset', default=['bap'], type=list, nargs='+', 
+    parser.add_argument('--mae_val_dataset', default=['bap'], type=str, nargs='+', 
                         help='dataset for validating mae eg. bap, hbn, lemon')
-    parser.add_argument('--regressor_train_dataset', default=['bap'], type=list, nargs='+', 
+    parser.add_argument('--regressor_train_dataset', default=['bap'], type=str, nargs='+', 
                         help='dataset for training the regressor, only effectice if mae_age is true\
                         eg. bap, hbn, lemon')
     parser.add_argument('--oversample', default=False, type=bool, 
