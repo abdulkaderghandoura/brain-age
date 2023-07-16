@@ -13,7 +13,6 @@ sys.path.append('../utils/')
 import copy
 from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, _compose, \
                         amplitude_flip, channels_dropout, time_masking, gaussian_noise
-# from mae_age_regressor import MAE_AGE
 from mae_finetuner import VisionTransformer
 from mae import MaskedAutoencoderViT
 from dataset import EEGDataset
@@ -25,13 +24,13 @@ def get_args_parser():
     # finetuning parameters
     parser.add_argument('--experiment_name', default='downstream_task')
     parser.add_argument('--batch_size', default=128, type=int,
-                        help='Batch size')
-    parser.add_argument('--epochs', default=[80, 150], type=int, nargs='+', 
-                        help='Maximum number of epochs for linear probing and finetuning, respectively')
+                            help='Batch size')
+    parser.add_argument('--epochs', default=[100, 150], type=int, nargs='+', 
+                            help='Maximum number of epochs for linear probing and finetuning, respectively')
     parser.add_argument('--artifact_id', default='h4vidwgf:v210', type=str, 
-                        help='name and version of the model artifact to be finetuned')
+                            help='name and version of the model artifact to be finetuned')
     parser.add_argument('--lr', default=[1e-2, 1e-4], type=float, nargs='+', 
-                        help='learning rates for linear probing and finetuning, respectively')
+                            help='learning rates for linear probing and finetuning, respectively')
     parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+', help=('Select mode for fine tuning. Can be one of: ',
                         '[linear_probe], [linear_probe, finetune_encoder], [linear_probe, finetune_final_layer], [random_initialization]'))
     parser.add_argument('--augment_data', default=False, type=bool, 
@@ -58,10 +57,6 @@ def get_args_parser():
                     help='number of attention heads of the decoder')
     parser.add_argument('--mlp_ratio', default=4., type=float, 
                         help='ratio of mlp hidden dim to embedding dim')
-    # parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
-    #                     help='learning rate to train the masked autoencoder with')    
-    # parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
-    #                     help='learning rate to train the regression head with')
     parser.add_argument('--pixel_norm', default=False, type=bool, 
                         help='normalize the output pixels before computing the loss')
     
@@ -175,13 +170,11 @@ def main(args):
                                 dataset_names=args.train_dataset, 
                                 splits=['train'], 
                                 d_version=args.dataset_version, 
-                                transforms=composed_transforms_train, 
-                                oversample=True)
+                                transforms=composed_transforms_train)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
                                 num_workers=args.num_workers, 
-                                pin_memory=True, 
-                                shuffle=True)
+                                pin_memory=True)
 
     val_dataset = EEGDataset(datasets_path=args.dataset_path, 
                                 dataset_names=args.val_dataset, 
@@ -240,7 +233,7 @@ def main(args):
                                             mode=mode,
                                             max_epochs=epochs,
                                             lr=lr)
-        if "finetune" in mode:
+        if "finetune" in mode and not "random_initialization" in args.mode:
             model.head = head
 
         trainer = pl.Trainer(overfit_batches=args.overfit_batches,  # for fast debugging
