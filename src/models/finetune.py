@@ -108,8 +108,8 @@ def get_args_parser():
     
     parser.add_argument('--reinitialize_weights', default=False, type=bool, 
                         help='reinitialize the weights randomly as a control')
-    parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+',
-                        help='select mode to fine tune: linear_probe, finetune_encoder, finetune_final_layer, random_initialization')
+    parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+', help=('select mode for fine tuning. Can be one of: ',
+                        '[linear_probe], [linear_probe, finetune_encoder], [linear_probe, finetune_final_layer], [random_initialization]'))
     parser.add_argument('--augment_data', default=False, type=bool, 
                             help='augment the training dataset')
 
@@ -119,29 +119,33 @@ def get_args_parser():
 
 def main(args):
 
-    # using a CUDA device ('NVIDIA A80') that has Tensor Cores. 
-    # To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')`
-    # which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+    # Check for invalid arguments
+    if "random_initialization" in args.mode:
+        assert len(args.mode) == 1, "only one mode can be passed when training from random weights"
+    assert len(args.mode) == len(args.epochs) == len(args.lr), "provide one learning rate and # epochs for each mode"   
 
-    
+    # To properly utilize 'NVIDIA A40' For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
     torch.set_float32_matmul_precision('medium')
 
+    # Setting seed for reproducibility
     seed = args.seed 
     torch.manual_seed(seed)
     np.random.seed(seed)
 
     #size of the input = # of seconds * sampling frequency 
     
+    # Download the model weights from wandb
     wandb.login()
     run = wandb.init()
     artifact_wandb_path = 'brain-age/brain-age/model-' + args.artifact_id
     artifact = run.use_artifact(artifact_wandb_path, type='model')
     artifact_path = pathlib.Path(artifact.download())
-    ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
-    checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
+    checkpoint_path = list(artifact_path.rglob("*.ckpt"))[0]
+    checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
     state_dict = checkpoint['state_dict']
     run.finish()
     
+    # Initialize and compose the transforms 
     if args.standardization == "channelwise":
         norm = channelwise_norm
     elif args.standardization == "channelwide":
@@ -152,7 +156,7 @@ def main(args):
     transforms_train = [randomcrop, norm, clamp]
     transforms_val = [randomcrop, norm, clamp]
 
-    if args.augment_data:
+    if args.augment_data: # use data augmentation
         rand_amplitude_flip = partial(amplitude_flip, prob=args.p_amplitude_flip)
         rand_channels_dropout = partial(channels_dropout, max_channels=args.max_channels_to_dropout, prob=args.p_channels_dropout)
         rand_gaussian_noise = partial(gaussian_noise, prob=args.p_gaussian_noise)
@@ -161,6 +165,7 @@ def main(args):
     composed_transforms_train = partial(_compose, transforms=transforms_train)
     composed_transforms_val = partial(_compose, transforms=transforms_val)
 
+    # Initialize the training and validation dataloader
     train_dataset = EEGDataset(datasets_path="/data0/practical-sose23/brain-age/data/", dataset_names=['bap'], splits=['train'], d_version="v3.0", transforms=composed_transforms_train, oversample=True)
     train_dataloader = DataLoader(train_dataset, 
                                 batch_size=args.batch_size, 
@@ -178,21 +183,13 @@ def main(args):
     print(args.mode, args.lr, args.epochs)
     print(f"\n===============================\n")
     
-    if "random_initialization" in args.mode:
-        assert len(args.mode) == 1, "only one mode can be passed when training from random weights"
-
+    # Perform fine tuning workflow
     for mode, lr, epochs in zip(args.mode, args.lr, args.epochs):
         
         wandb.login()
         logger = pl.loggers.WandbLogger(project="brain-age", name=f"{args.experiment_name}_{mode}_{args.artifact_id}", 
                                         save_dir="wandb/", log_model=False)
         
-        print(f"\n===============================\n")
-        print("mode", mode)
-        print("epochs", epochs)
-        print("lr", lr)
-        print(f"\n===============================\n")
-
         lr_monitor = LearningRateMonitor(logging_interval='epoch')
         
         if "finetune" in mode:
