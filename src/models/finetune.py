@@ -203,11 +203,7 @@ def main(args):
             save_last=True
         )
         callbacks.append(checkpoint_callback)
-    
-    print(f"\n===============================\n")
-    print(args.mode, args.lr, args.epochs)
-    print(f"\n===============================\n")
-    
+       
     # Perform fine tuning workflow
     for mode, lr, epochs in zip(args.mode, args.lr, args.epochs):
         
