@@ -1,8 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # --------------------------------------------------------
-# Position embedding utils
-# --------------------------------------------------------
+
+
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np
@@ -35,20 +35,17 @@ from mae_age_regressor import AgeRegressor
 class VisionTransformer(pl.LightningModule):
     """ Vision Transformer with support for global average pooling
     """
-    def __init__(self, state_dict, mode, global_pool=True, **kwargs):
+    def __init__(self, state_dict, mode, max_epochs, **kwargs):
 
         super(VisionTransformer, self).__init__()
         self.backbone = timm.models.vision_transformer.VisionTransformer(**kwargs)
         del self.backbone.head
         self.backbone.load_state_dict(state_dict, strict=False)
         self.head = AgeRegressor(input_dim=kwargs["embed_dim"], output_dim=1)
-        self.backbone.patch_drop = nn.Identity()
-        self.global_pool = global_pool
+        self.max_epochs = max_epochs
 
         print(f"========= \n checksum inside finetuner: {get_encoder_checksum(self.backbone.blocks)}")
-        self.mode = mode
-        # self.mode='linear_probe'
-        
+        self.mode = mode        
         self.r2 = R2Score()
 
     def forward(self, x):
@@ -76,14 +73,24 @@ class VisionTransformer(pl.LightningModule):
         return loss
     
     def configure_optimizers(self):
+             
         if self.mode == "linear_probe":
             self.backbone.eval()
             optimizer = optim.AdamW(self.head.parameters(), lr=1e-2)
         elif self.mode == "finetune_encoder":
-            optimizer = optim.AdamW(self.parameters(),  lr=1e-4)#, weight_decay=0.05)
+            optimizer = optim.AdamW(self.parameters(),  lr=1e-2)#, weight_decay=0.05)
+        elif self.mode == "finetune_final_layer":
+            final_modules = list(self.backbone.modules())[-3:]
+            params = []
+            for module in final_modules:
+                print("...preparing module for finetuning:")
+                print(module)
+                params += list(module.parameters())
+            params += list(self.head.parameters())
+            optimizer = optim.AdamW(params, lr=1e-4)
         else:
             print("select a valid mode for finetuning: linear_probe, finetune_encoder")
-        lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, max_epochs=60, warmup_epochs=6)
+        lr_scheduler = LinearWarmupCosineAnnealingLR(optimizer, max_epochs=self.max_epochs, warmup_epochs=6)
         return [optimizer], [lr_scheduler]
 
 
