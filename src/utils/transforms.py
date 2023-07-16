@@ -57,6 +57,8 @@ def channels_dropout(x, prob, max_channels):
         x_augmented[dropout_channels, :] = 0
     return x_augmented
 
+
+############################### TODO: Thomas said this function returns None type!!!!
 def time_masking(x, prob, max_mask_size, mode='same_segment'):
     x_augmented = x.clone()
     if torch.rand(1) < prob:

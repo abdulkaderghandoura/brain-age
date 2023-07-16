@@ -4,162 +4,209 @@ import mne
 import pickle
 from tqdm import tqdm
 import argparse
-import json
-import time
 import warnings
 import multiprocessing
+from pathlib import Path
 
 import sys
 sys.path.append('../utils/')
-# from format_hbn import HBNFormatter
-from preprocessing_utils import HBNFormatter, get_hbn_formatter, apply_in_order
+from preprocessing_utils import get_hbn_formatter, apply_in_order, split_data, delete_partitioning_dirs
+# from utils import get_hbn_formatter, apply_in_order
+from utils import Timer, add_labels_to_splits
 
-# pbar = None
 
-
-def preprocess_file(file_path, dataset_name, hbn_formatter, preprocessing_steps, new_file_path=None, sfreq=None, references=[], filters=[]):
+def preprocess_file(args, file_path: str, new_file_path: str, dataset_name: str, filters: dict, hbn_formatter):
+    
     eeg_obj = None
+    
     if dataset_name == 'bap':
         # Load EEG data into an EEG raw object
         eeg_obj = mne.io.read_raw_brainvision(file_path, verbose=False, preload=True)
+        # Drop the two misc channels 'LE' and 'RE' in the bap data
         eeg_obj = eeg_obj.drop_channels(['LE', 'RE'])
         # Set channel types for all channels to 'eeg'
         eeg_obj.set_channel_types({channel: 'eeg' for channel in eeg_obj.ch_names})
-        # # Correct channel types of LE and RE
-        # eeg_obj.set_channel_types({'LE':'misc', 'RE':'misc'})
 
-        preprocessing_steps = [x for x in preprocessing_steps if x != 'bad_ch']
-        eeg_obj = apply_in_order(eeg_obj, preprocessing_steps, filters, sfreq)
+        preprocessing_steps = [x for x in args.preprocessing_steps if x != 'bad_ch']
+        eeg_obj = apply_in_order(eeg_obj, args, filters)
+        
     
-    elif dataset_name == 'hbn':
-        assert 'bad_ch' in preprocessing_steps
-        eeg_obj = hbn_formatter(file_path, preprocessing_steps, filters, sfreq)
+    elif dataset_name == 'lemon':
+        # Load EEG data into an EEG raw object
+        try:
+            eeg_obj = mne.io.read_raw_brainvision(file_path, verbose=False, preload=True)
+        except FileNotFoundError:
+            return new_file_path
+        # Drop the misc channel 'VEOG' in the lemon data
+        eeg_obj = eeg_obj.drop_channels(['VEOG'])
+        # Set channel types for all channels to 'eeg'
+        eeg_obj.set_channel_types({channel: 'eeg' for channel in eeg_obj.ch_names})
 
-    for ref_item in references:
+        # TODO: Do we need to set the montage?
+        montage = mne.channels.make_standard_montage("standard_1020")
+        eeg_obj = eeg_obj.set_montage(montage)
+
+        preprocessing_steps = [x for x in args.preprocessing_steps if x != 'bad_ch']
+        eeg_obj = apply_in_order(eeg_obj, args, filters)
+
+    elif dataset_name == 'hbn':
+        assert 'bad_ch' in args.preprocessing_steps
+        eeg_obj = hbn_formatter(file_path, args.preprocessing_steps, filters, args.sfreq)
+
+    for ref_item in args.references:
+        channel_names = eeg_obj.ch_names
         if ref_item == 'average':
-            channel_names = eeg_obj.ch_names
             eeg_obj.set_eeg_reference(ref_channels="average")
             eeg_obj = eeg_obj.pick(picks=channel_names)
-        # elif ref_item == 'median':
-        #     median_channel = np.median(eeg_obj.get_data(), axis=0)
-        #     eeg_obj -= median_channel
-        #     pass # TODO
         elif ref_item in channel_names:
-            channel_names = eeg_obj.ch_names
             eeg_obj.set_eeg_reference(ref_channels=ref_item)
             eeg_obj = eeg_obj.pick(picks=channel_names)
     
-    if new_file_path is not None:
-        # Save the filtered EEG data as a pickle file
-        with open(new_file_path, mode='wb') as out_file:
-            pickle.dump(eeg_obj, out_file, protocol=5)
+    # Save the filtered EEG data as a pickle file
+    with open(new_file_path, mode='wb') as out_file:
+        pickle.dump(eeg_obj, out_file, protocol=5)
 
-    return ((eeg_obj.get_data(), None) if new_file_path is None else (None, new_file_path))
-
-
-def callback(new_file_path):
-    print(f"Saved: {new_file_path[1]}")
-    # Update the progress bar
-    # pbar.update(1)
+    return new_file_path
 
 
-def preprocessed_data(datasets_path, dataset_names, preprocessing_version, preprocessing_steps, sfreq, references, filters):
-    start_time = time.time()
-
+def preprocessed_data(args, filters):
     # Disable RuntimeWarning messages
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    # Split datasets_path into directories
-    datasets_path_dirs = datasets_path.split('/' if '/' in datasets_path else '\\')
-    datasets_path_dirs = [dir for dir in datasets_path_dirs if dir != '']
+    datasets_path = Path(args.datasets_path).resolve()
 
     hbn_formatter = get_hbn_formatter(datasets_path)
-    paths_list = list()
 
-    # Set the number of worker processes (adjust according to your system)
-    # num_processes = multiprocessing.cpu_count()
-    num_processes = 32
+    raw_directory_name = {'hbn': 'unzipped',
+                          'bap': 'raw',
+                          'lemon': 'LEMON_RAW'}
+    
+    g_file_paths = list()
+    
+    for dataset_name in args.dataset_names:
+            
+        input_data_path = datasets_path / dataset_name / raw_directory_name[dataset_name]
+        output_data_path = datasets_path / dataset_name / 'preprocessed' / args.d_version
+        
+        file_paths = None
+        if dataset_name == 'hbn':
+            file_paths = list(input_data_path.rglob('*.mat'))
+        elif dataset_name == 'bap':
+            file_paths = [x for x in list(input_data_path.rglob('*.vhdr')) if 'preprocessed' in list(x.parts)]
+        elif dataset_name == 'lemon':
+            file_paths = list(input_data_path.rglob('*.vhdr'))
+
+        for file_path in file_paths:
+            cur_dirs = file_path.parent.parts
+            new_dir_path = output_data_path.joinpath(*cur_dirs[len(input_data_path.parts):])
+            os.makedirs(new_dir_path, exist_ok=True)
+            new_file_path = new_dir_path / (file_path.stem + '.pickle')
+            g_file_paths.append((file_path, new_file_path, dataset_name))
+                
+    unsaved_files = list()
+    # Create a tqdm progress bar
+    p_bar = tqdm(total=len(g_file_paths))
+    # Create a lock object to synchronize access to shared resources
+    lock = multiprocessing.Lock()
+    # Set the number of worker processes
+    num_processes = 15
 
     with multiprocessing.Pool(processes=num_processes) as pool:
+        for g_file_path in g_file_paths:
+            file_path, new_file_path, dataset_name = g_file_path
+            result = pool.apply_async(preprocess_file, args=(args, file_path, new_file_path, dataset_name, filters, hbn_formatter))
+    
+            # Wait for the task to complete
+            result.wait()
+            new_file_path=result.get()
 
-        for dataset_name in dataset_names:
-            print(f'Started processing {dataset_name} dataset..')
-            
-            input_data_dirs = None
-            if dataset_name == 'hbn':
-                input_data_dirs = datasets_path_dirs + ['hbn', 'unzipped']
-            elif dataset_name == 'bap':
-                input_data_dirs = datasets_path_dirs + ['bap', 'raw']
-            
-            input_data_path = os.path.join('/', *input_data_dirs)
+            if not new_file_path.is_file():
+                print(f"Couldn't save: {new_file_path}")
+                unsaved_files.append(new_file_path)
+            with lock:
+                # Manually increment the progress bar by 1
+                p_bar.update(1)
 
-            output_data_dirs = datasets_path_dirs + [dataset_name, 'preprocessed']
-            output_data_dirs.append(preprocessing_version)
-            
-            # Walk through the directory tree starting from input_data_path
-            for dir_path, _, file_names in os.walk(input_data_path):
-                
-                # Split current directory path into individual directories
-                cur_dirs = dir_path.split('/' if '/' in dir_path else '\\')
-                cur_dirs = [dir for dir in cur_dirs if dir != '']
-                
-                if dataset_name == 'hbn' or (dataset_name == 'bap' and 'preprocessed' in cur_dirs):
-                    for file_name in file_names:
-                        # Check in bap dataset if the file extension is '.vhdr'
-                        if dataset_name == 'hbn' or (dataset_name == 'bap' and file_name.endswith(".vhdr")):
-                            # Get the full path of the current file
-                            file_path = os.path.join(dir_path, file_name)
-                            # Create the new directory path for the output file
-                            
-                            new_dir_path = os.path.join('/', *output_data_dirs, *cur_dirs[len(input_data_dirs):])
-
-                            new_dir_path = os.path.abspath(new_dir_path)
-                            os.makedirs(new_dir_path, exist_ok=True)
-                            # Create the new file path for the output file with a '.npy' extension
-                            new_file_path = os.path.join(new_dir_path, os.path.splitext(file_name)[0] + '.pickle')
-                            paths_list.append((file_path, new_file_path))
-                            # print('file path: ', file_path)
-                            # print('new file path: ', new_file_path)
-            
-            # Create a tqdm progress bar
-            # pbar = tqdm(total=len(paths_list))
-
-            for item in paths_list:
-                pool.apply_async(preprocess_file, args=(item[0], dataset_name, hbn_formatter, 
-                                 preprocessing_steps, item[1], sfreq, references, filters), callback=callback)
-
-        # Wait for all processes to finish
         pool.close()
         pool.join()
-
-    # Calculate the elapsed time in seconds
-    end_time = time.time()
-    execution_time = end_time - start_time
-    print(f"Execution time: {execution_time} seconds")
-
-
-def preprocess_from_command_line():
-    # Creating an argument parser object
-    parser = argparse.ArgumentParser(description="Data Preprocessing Script")
-
-    # Adding command line arguments
-    parser.add_argument("--datasets_path", default='/data0/practical-sose23/brain-age/data/', help="Path to the datasets directory")
-    parser.add_argument("-dataset_names", nargs='+', help="List of dataset names")
-    parser.add_argument("-version", default='v1.0', help="Directory name of the current version of preprocessing")
-    parser.add_argument("--downsampling", help="Factor for downsampling")
-    parser.add_argument("--references", nargs='+', default=[], help="List of reference channels")
-    parser.add_argument("--filters", default={}, help='Optional key-value pairs in JSON format')
-    parser.add_argument("--preprocessing_steps", nargs='+', default=['lpf', 'sfreq', 'bad_ch', 'hpf'], help='Preprocessing steps in order')
+        p_bar.close()
     
-    # Parsing the command line arguments
-    args = parser.parse_args()
+    print(f"Couldn't save the following {len(unsaved_files)} files:")
+    for unsaved_file in unsaved_files:
+        print(unsaved_file)
 
-    # Loading the JSON-formatted filters
-    filters = json.loads(args.filters)
+
+def main(args):
+    timer = Timer()
+    timer.start()
+
+    filters = dict()
+    for filter_name, filter_value in args.filter:
+        # lpf: low-pass filter; hpf: high-pass filter; nf: notch filter
+        assert filter_name in ['lpf', 'hpf', 'nf']
+        filters[filter_name] = float(filter_value)
+
+    print('Started filtering data')
+    preprocessed_data(args, filters)
+
+    # delete_partitioning_dirs(args)
+
+    split_ratios = {}
+    for split in args.split:
+        dataset_name = split[0]
+        train_ratio, val_ratio, test_ratio = map(int, split[1:])
+        split_ratios[dataset_name] = {'train': train_ratio, 'val': val_ratio, 'test': test_ratio}
+
+    print('Started splitting data')
+    split_data(args, split_ratios)
+    print('Started adding labels')
+    add_labels_to_splits(args)
     
-    # Preprocessing the data using the provided arguments
-    preprocessed_data(args.datasets_path, args.dataset_names, args.version, args.preprocessing_steps, args.downsampling, args.references, filters)
+    # Print the elapsed time in seconds
+    timer.end()
 
 
 if __name__ == "__main__":
-    preprocess_from_command_line()
+    # Creating an argument parser object
+    parser = argparse.ArgumentParser(description="Data Preprocessing Script")
+    # List of all datasets can be preprocessed
+    dataset_names = ['bap', 'hbn', 'lemon']
+    # Default order of preprocessing steps
+    pre_steps = ['lpf', 'sfreq', 'bad_ch', 'hpf']
+
+    # Adding command line arguments
+    parser.add_argument("--datasets_path", type=str, default='/data0/practical-sose23/brain-age/data/', 
+                        help="Path to the datasets directory")
+    
+    parser.add_argument("--dataset_names", type=str, nargs='+', choices=dataset_names, required=True, 
+                        help="List of dataset names")
+    
+    parser.add_argument("--d_version", type=str, required=True, 
+                        help="Directory name of the current version of preprocessing")
+    
+    parser.add_argument("--sfreq", type=int, required=True, 
+                        help="Sampling frequency")
+    
+    parser.add_argument('--filter', nargs='+', action='append', required=True,
+                        help='Specify the filter and value, e.g., lpf 45')
+    
+    parser.add_argument("--references", type=str, nargs='+', default=[],
+                        help="List of reference channels")
+    
+    parser.add_argument("--preprocessing_steps", type=str, nargs='+', default=pre_steps, choices=pre_steps, 
+                        help='Preprocessing steps in order')
+    
+    parser.add_argument('--split', nargs='+', action='append', required=True,
+                        help='Specify dataset and split ratios, e.g., bap 70 15 15')
+    
+    parser.add_argument("--window_in_sec", type=int, default=30, 
+                        help='##############')
+    
+    parser.add_argument("--stride_in_sec", type=int, default=15, 
+                        help='##############')
+    
+    parser.add_argument("--eeg_partition_mode", type=str, default='mne', choices=['mne', 'numpy'],
+                        help='##############')
+
+    args = parser.parse_args()
+    main(args)
