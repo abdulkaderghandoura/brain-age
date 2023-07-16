@@ -85,7 +85,7 @@ class VisionTransformer(pl.LightningModule):
             # freeze the parameters of the backbone
             self.backbone.eval()
             # train the regression head
-            params = head.parameters()
+            params = self.head.parameters()
         elif self.mode == "finetune_encoder":
             # train the entire model
             params = self.parameters()
