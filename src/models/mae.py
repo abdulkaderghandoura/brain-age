@@ -1,142 +1,60 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# --------------------------------------------------------
-# Position embedding utils
-# --------------------------------------------------------
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-import numpy as np
-
-import torch
-import torch.nn as nn
-# --------------------------------------------------------
-# 2D sine-cosine position embedding
 # References:
-# Transformer: https://github.com/tensorflow/models/blob/master/official/nlp/transformer/model_utils.py
-# MoCo v3: https://github.com/facebookresearch/moco-v3
-# --------------------------------------------------------
-def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False):
-    """
-    grid_size: int of the grid height and width
-    return:
-    pos_embed: [grid_size*grid_size, embed_dim] or [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
-    """
-
-    grid_size_h = grid_size[0]
-    grid_size_w = grid_size[1]
-    grid_h = np.arange(grid_size_h, dtype=np.float32) # grid size = self.patch_embed.num_patches**.5
-    grid_w = np.arange(grid_size_w, dtype=np.float32)
-    grid = np.meshgrid(grid_w, grid_h)  # here w goes first
-    # grid is like this but for values up to 14 ( because the grid_size = 14 = patch_embed.num_patches**.5)
-#     [array([[ 0.,  1.,  2.,  3.],
-#        [ 0.,  1.,  2.,  3.],
-#        [ 0.,  1.,  2.,  3.],
-#        [ 0.,  1.,  2.,  3.]], dtype=float32), array([[ 0.,  0.,  0.,  0.],
-#        [ 1.,  1.,  1.,  1.],
-#        [ 2.,  2.,  2.,  2.],
-#        [ 3.,  3.,  3.,  3.]], dtype=float32)]
-
-    grid = np.stack(grid, axis=0)
-    grid = grid.reshape([2, 1, grid_size_w, grid_size_h]) # shape before (2, 14, 14) shape after (2, 1, 14, 14)
-    pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid) # shape of the pos embed (196, 1024) for the encoder 
-    # shape of the pos embed for the decoder is (196, 512)
-    if cls_token:
-        pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
-    return pos_embed
-
-
-def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
-    assert embed_dim % 2 == 0
-
-    # use half of dimensions to encode grid_h
-    h_embed_dim = embed_dim // 2 # embed dim = 1024 for the encoder 
-    w_embed_dim = embed_dim // 2 
-    emb_h = get_1d_sincos_pos_embed_from_grid(h_embed_dim, grid[0])  # (H*W, D/2)
-    emb_w = get_1d_sincos_pos_embed_from_grid(w_embed_dim, grid[1])  # (H*W, D/2)
-
-    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
-    return emb
-
-
-def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
-    """
-    embed_dim: output dimension for each position
-    pos: a list of positions to be encoded: size (M,)
-    out: (M, D)
-    """
-    assert embed_dim % 2 == 0
-    omega = np.arange(embed_dim // 2, dtype=np.float32) # 0 --> 256 
-    omega /= embed_dim / 2. #( 0 --> 256  / 256)
-    omega = 1. / 10000**omega  # (D/2,) 
-    # omega = 1/10000**i --> i = range_normalized(0,1) for embedding = 1024 total and 512 for each side of the grid 
-
-    pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
-
-    emb_sin = np.sin(out) # (M, D/2)
-    emb_cos = np.cos(out) # (M, D/2)
-
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
-    return emb
-
-
-# --------------------------------------------------------
-# Interpolate position embeddings for high-resolution
-# References:
+# original implementation: https://github.com/facebookresearch/mae/blob/main/models_mae.py
+# timm: https://github.com/rwightman/pytorch-image-models/tree/master/timm
 # DeiT: https://github.com/facebookresearch/deit
-# --------------------------------------------------------
-def interpolate_pos_embed(model, checkpoint_model):
-    if 'pos_embed' in checkpoint_model:
-        pos_embed_checkpoint = checkpoint_model['pos_embed']
-        embedding_size = pos_embed_checkpoint.shape[-1]
-        num_patches = model.patch_embed.num_patches
-        num_extra_tokens = model.pos_embed.shape[-2] - num_patches
-        # height (== width) for the checkpoint position embedding
-        orig_size = int((pos_embed_checkpoint.shape[-2] - num_extra_tokens) ** 0.5)
-        # height (== width) for the new position embedding
-        new_size = int(num_patches ** 0.5)
-        # class_token and dist_token are kept unchanged
-        if orig_size != new_size:
-            print("Position interpolate from %dx%d to %dx%d" % (orig_size, orig_size, new_size, new_size))
-            extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
-            # only the position tokens are interpolated
-            pos_tokens = pos_embed_checkpoint[:, num_extra_tokens:]
-            pos_tokens = pos_tokens.reshape(-1, orig_size, orig_size, embedding_size).permute(0, 3, 1, 2)
-            pos_tokens = torch.nn.functional.interpolate(
-                pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
-            pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
-            new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
-            checkpoint_model['pos_embed'] = new_pos_embed
-
-            
-            
-            
-            
+# -----------------------------------------------------------------------------
+# Changes made to the original implementation: 
+#     - adapted implementation to work with pytorch lightning 
+#     - adapted implementation to work on non square input EEG instead of squared imgs 
+#     - added an option for fixed masking across batches
+#     - added useful loggings 
+# ------------------------------------------------------------------------------
 from timm.models.vision_transformer import PatchEmbed, Block
 import lightning.pytorch as pl
-
 import matplotlib.pyplot as plt 
 import wandb 
-
-# from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+import torch.nn as nn
+import torch 
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
-
+from pos_embed import get_2d_sincos_pos_embed
+from train_utils import visualize
 class MaskedAutoencoderViT(pl.LightningModule):
     """ Masked Autoencoder with VisionTransformer backbone
-    
     """
-    def __init__(self, img_size=(63, 1000), patch_size=(1, 100), in_chans=1,
-                 embed_dim=1024, depth=24, num_heads=16,
-                 decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
+    def __init__(self, EEG_size=(63, 1000), patch_size=(1, 100), in_chans=1,
+                 embed_dim=384, depth=2, num_heads=4,
+                 decoder_embed_dim=256, decoder_depth=2, decoder_num_heads=8,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, lr=2.5e-4):
+        """
+        initializes the masked autoencoder with a Vit backbone
+
+        Args:
+            EEG_size (tuple, optional): size of the input EEG. Defaults to (63, 1000).
+            patch_size (tuple, optional): size of the patches. Defaults to (1, 100).
+            in_chans (int, optional): number of input channels, relevant when working on imgs. Defaults to 1.
+            embed_dim (int, optional): dimension of encoder latent space per patch. Defaults to 384.
+            depth (int, optional): number of layer in the encoder transformer. Defaults to 2.
+            num_heads (int, optional): number of attention heads for each attention layer in the Transformer encoder.
+                                        . Defaults to 4.
+            decoder_embed_dim (int, optional): dimension of decoder embedding. Defaults to 256.
+            decoder_depth (int, optional): number of layer in the decoder transformer. Defaults to 2.
+            decoder_num_heads (int, optional): number of attention heads for each attention layer in the Transformer decoder
+                                            . Defaults to 8.
+            mlp_ratio (float, optional): Expansion factor of the feed-forward network. Defaults to 4..
+            norm_layer (nn.LayerNorm, optional): normal layer. Defaults to nn.LayerNorm.
+            norm_pix_loss (bool, optional): to normalize the target. Defaults to False.
+            lr (float, optional): base lr. Defaults to 2.5e-4.
+        """
         super().__init__()
         
-        self.img_size = img_size
+        self.EEG_size = EEG_size
         self.patch_size = patch_size
-        self.grid_size = (self.img_size[0]//self.patch_size[0], self.img_size[1]//self.patch_size[1])
+        self.grid_size = (self.EEG_size[0]//self.patch_size[0], self.EEG_size[1]//self.patch_size[1])
         # --------------------------------------------------------------------------
         # MAE encoder specifics
-        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+        self.patch_embed = PatchEmbed(EEG_size, patch_size, in_chans, embed_dim)
         self.num_patches = self.patch_embed.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
@@ -170,7 +88,14 @@ class MaskedAutoencoderViT(pl.LightningModule):
         self.save_hyperparameters()
 
     def initialize_weights(self):
-        # initialization
+        """
+        performs the following initialization steps:
+            - Initializes (and freezes) the pos_embed using sin-cos embedding.
+            - Initializes the decoder_pos_embed using sin-cos embedding.
+            - Initializes the patch_embed weights using xavier_uniform_ initialization.
+            - Initializes self.cls_token and self.mask_token using normal_ initialization.
+            - Initializes nn.Linear and nn.LayerNorm.
+        """
         # initialize (and freeze) pos_embed by sin-cos embedding
         pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], self.grid_size, cls_token=True)
         temp = torch.from_numpy(pos_embed).float().unsqueeze(0)
@@ -190,6 +115,12 @@ class MaskedAutoencoderViT(pl.LightningModule):
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
+        """
+        Initializes the weights of the given module.
+
+        Args:
+            m (nn.Module):  The module whose weights need to be initialized.
+        """
         if isinstance(m, nn.Linear):
             # we use xavier_uniform following official JAX ViT:
             torch.nn.init.xavier_uniform_(m.weight)
@@ -199,45 +130,50 @@ class MaskedAutoencoderViT(pl.LightningModule):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def patchify(self, imgs):
+    def patchify(self, EEGs):
         """
-        imgs: (N, 3, H, W)
-        x: (N, L, patch_size**2 *3)
-        """
-        p1, p2 = self.patch_embed.patch_size
-#         assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
-        assert imgs.shape[2] % p1 == 0 and imgs.shape[3] % p2 == 0
-    
-        h = imgs.shape[2] // p1
-        w = imgs.shape[3] // p2
-        ## change here, changes the number of channels in the next line from 3 to 1 
-        x = imgs.reshape(shape=(imgs.shape[0], imgs.shape[1], h, p1, w, p2))
-        x = torch.einsum('nchpwq->nhwpqc', x)
-        # change here, changes p**2*3 to p**2*1
-        x = x.reshape(shape=(imgs.shape[0], h * w, p1*p2 * imgs.shape[1]))
-        return x
+        Patchifies the input EEGs tensor into smaller patches.
 
-    def unpatchify(self, x):
-        """
-        x: (N, L, p1 * p2 * num_channels)
-        imgs: (N, 3, H, W)
+        Args:
+            EEGs (torch.Tensor): Input EEGs tensor of shape (batch_size, channels, height, width).
+
+        Returns:
+            torch.Tensor: Patchified tensor of shape (batch_size, num_patches, patch_dim).
+
+        Raises:
+            AssertionError: If the height or width of the input EEGs tensor is not divisible by the patch size.
+
         """
         p1, p2 = self.patch_embed.patch_size
-        num_channels = int(x.shape[2] / (p1*p2))
-        h = self.grid_size[0]
-        w = self.grid_size[1]
-        assert h * w == x.shape[1]
         
-        x = x.reshape(shape=(x.shape[0], h, w, p1, p2, num_channels))
-        x = torch.einsum('nhwpqc->nchpwq', x)
-        imgs = x.reshape(shape=(x.shape[0], num_channels, h * p1, w * p2))
-        return imgs
+        assert EEGs.shape[2] % p1 == 0 and EEGs.shape[3] % p2 == 0
+    
+        h = EEGs.shape[2] // p1 # number of patches vertically 
+        w = EEGs.shape[3] // p2 # number of patches horizontally  
+
+        x = EEGs.reshape(shape=(EEGs.shape[0], EEGs.shape[1], h, p1, w, p2))
+        x = torch.einsum('nchpwq->nhwpqc', x)
+        x = x.reshape(shape=(EEGs.shape[0], h * w, p1*p2 * EEGs.shape[1]))
+        return x
 
     def random_masking(self, x, mask_ratio, set_masking_seed=False):
         """
         Perform per-sample random masking by per-sample shuffling.
-        Per-sample shuffling is done by argsort random noise.
-        x: [N, L, D], sequence
+
+        Args:
+            x (torch.Tensor): Input sequence tensor of shape (N, L, D), where N is the batch size,
+                L is the length of the sequence, and D is the dimension of each element.
+            mask_ratio (float): Ratio of the sequence length to mask. Should be a value between 0 and 1.
+            set_masking_seed (bool, optional): Flag indicating whether to set a fixed seed for the masking noise.
+                Defaults to False.
+
+        Returns:
+            x_masked (torch.Tensor): Masked sequence tensor of shape (N, len_keep, D), where len_keep
+                is the length of the sequence after masking.
+            mask (torch.Tensor): Binary mask tensor of shape (N, L), where 0 represents elements to keep
+                and 1 represents elements to remove.
+            ids_restore (torch.Tensor): Tensor of indices used to restore the original order after shuffling.
+
         """
 
         N, L, D = x.shape  # batch, length, dim
@@ -264,6 +200,22 @@ class MaskedAutoencoderViT(pl.LightningModule):
         return x_masked, mask, ids_restore
 
     def forward_encoder(self, x, mask_ratio, set_masking_seed=False):
+        """
+        Performs forward pass for the encoder
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, channels, height, width).
+            mask_ratio (float): Ratio of the sequence length to mask. Should be a value between 0 and 1.
+            set_masking_seed (bool, optional): Flag indicating whether to set a fixed seed for the masking noise.
+                Defaults to False.
+
+        Returns:
+            x (torch.Tensor): Encoded tensor after applying the encoder blocks, of shape (batch_size, num_of_patches, hidden_dim).
+            mask (torch.Tensor): Binary mask tensor of shape (batch_size, num_of_patches), where 0 represents elements to keep
+                and 1 represents elements to remove.
+            ids_restore (torch.Tensor): Tensor of indices used to restore the original order after shuffling.
+        """
+
         x = self.patch_embed(x)
 
         # add pos embed w/o cls token
@@ -285,6 +237,17 @@ class MaskedAutoencoderViT(pl.LightningModule):
         return x, mask, ids_restore
 
     def forward_decoder(self, x, ids_restore):
+        """
+        Performs forward pass for the decoder 
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, num_of_patches, hidden_dim).
+            ids_restore (torch.Tensor): Tensor of indices used to restore the original order after shuffling.
+
+        Returns:
+            torch.Tensor: Decoded tensor after applying the decoder blocks, of shape (batch_size, num_of_patches, hidden_dim).
+
+        """
         # embed tokens
         x = self.decoder_embed(x)
 
@@ -309,37 +272,25 @@ class MaskedAutoencoderViT(pl.LightningModule):
 
         return x
 
-    def training_step(self, batch, batch_idx):
-        eegs, _ = batch
-        reconstruction_loss, pred, target, mask, latent = self(eegs)
-        self.log("train_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        if batch_idx == 0:
-            self.visualize(mask, target, pred, 'train')
-        return reconstruction_loss
-    
-    def validation_step(self, batch, batch_idx): 
-        eegs, _= batch
-        reconstruction_loss, pred, target, mask, latent = self(eegs)
-        self.log("val_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        if batch_idx == 0:
-            self.visualize(mask, target, pred, 'val')
-        return reconstruction_loss
+    def forward_loss(self, EEGs, pred, mask):
+        """
+        Compute the forward loss based on the input EEG, predicted patches, and mask.
 
-    def forward_loss(self, imgs, pred, mask):
+        Args:
+            EEGs (torch.Tensor): Input EEG tensor of shape (N, 1, H, W).
+            pred (torch.Tensor): Predicted patch tensor of shape (N, L, p1*p2).
+            mask (torch.Tensor): Binary mask tensor of shape (N, L), where 0 represents elements to keep
+                and 1 represents elements to remove.
+
+        Returns:
+            torch.Tensor: Computed forward loss.
+
         """
-        imgs: [N, 3, H, W]
-        pred: [N, L, p*p*3]
-        mask: [N, L], 0 is keep, 1 is remove, 
-        """
-        target = self.patchify(imgs)
+        target = self.patchify(EEGs)
         if self.norm_pix_loss:
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)
             target = (target - mean) / (var + 1.e-6)**.5
-
-            mean = pred.mean(dim=-1, keepdim=True)
-            var = pred.var(dim=-1, keepdim=True)
-            pred = (pred - mean) / (var + 1.e-6)**.5
         
         loss = (pred - target) ** 2
         loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
@@ -348,78 +299,79 @@ class MaskedAutoencoderViT(pl.LightningModule):
         return loss
 
 
-    def forward(self, imgs, mask_ratio=0.75, set_masking_seed=False):
-        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio, set_masking_seed)
-        pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
-        loss = self.forward_loss(imgs, pred, mask)
-        target = self.patchify(imgs)
+    def forward(self, EEGs, mask_ratio=0.75, set_masking_seed=False):
+        """
+        Performs forward pass 
+
+        Args:
+            EEGs (torch.Tensor): Input EGG tensor of shape (N, 1, H, W).
+            mask_ratio (float, optional): Ratio of the patches to mask during encoder forward pass.
+                Defaults to 0.75.
+            set_masking_seed (bool, optional): Flag indicating whether to set a fixed seed for the masking noise
+                during encoder forward pass. Defaults to False.
+
+        Returns:
+            loss (torch.Tensor): Computed forward loss.
+            pred (torch.Tensor): Predicted patch tensor of shape (N, L, p1*p2).
+            target (torch.Tensor): Patchified target tensor of shape (N, L, p1*p2).
+            mask (torch.Tensor): Binary mask tensor of shape (N, L), where 0 represents elements to keep
+            and 1 represents elements to remove.
+            latent (torch.Tensor): Encoded latent tensor.
+
+        """
+        latent, mask, ids_restore = self.forward_encoder(EEGs, mask_ratio, set_masking_seed)
+        pred = self.forward_decoder(latent, ids_restore)  # [N, L, p1*p2]
+        loss = self.forward_loss(EEGs, pred, mask)
+        target = self.patchify(EEGs)
         return loss, pred, target, mask, latent
 
+    def training_step(self, batch, batch_idx):
+        """
+        Performs a training step on a batch of data.
+
+        Args:
+            batch: A batch of data, typically containing input EEGs and labels.
+            batch_idx (int): Index of the current batch.
+
+        Returns:
+            torch.Tensor: The reconstruction loss computed during the training step.
+
+        """
+        eegs, _ = batch
+        reconstruction_loss, pred, target, mask, latent = self(eegs)
+        self.log("train_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if batch_idx == 0:
+            visualize(self.EEG_size[1], self.patch_size, mask, target, pred, 'train')
+        return reconstruction_loss
+    
+    def validation_step(self, batch, batch_idx): 
+        """
+        Performs a validation step on a batch of data.
+
+        Args:
+            batch: A batch of data, typically containing input EEGs and labels.
+            batch_idx (int): Index of the current batch.
+
+        Returns:
+            torch.Tensor: The reconstruction loss computed during the training step.
+
+        """
+        eegs, _= batch
+        reconstruction_loss, pred, target, mask, latent = self(eegs)
+        self.log("val_loss", reconstruction_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if batch_idx == 0:
+            visualize(self.EEG_size[1], self.patch_size, mask, target, pred, 'val')
+        return reconstruction_loss
+
     def configure_optimizers(self):
+        """
+        Configures the optimizer and learning rate scheduler for training.
+
+        Returns:
+            optimizers (List[torch.optim.Optimizer]): List of optimizers used for training.
+            schedulers (List[torch.optim.lr_scheduler._LRScheduler]): List of learning rate schedulers used for training.
+
+        """
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, betas=(0.9, 0.95))
         scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup_epochs=40, max_epochs=400)
         return [optimizer], [scheduler]
-
-
-    def visualize(self, mask, target, pred, split="train"): 
-        inverted_mask = 1 - mask
-        expanded_mask = inverted_mask[0].unsqueeze(-1)
-        masked_target = target[0] * expanded_mask
-        
-        ch_idx = 0
-        target_channel = []
-        masked_channel = []
-        pred_channel = []
-        mask_channel = []
-        for patch_idx in range(target.shape[1]):
-            pred_patch = pred[0, patch_idx, :].view(*self.patch_size)
-            target_patch = target[0, patch_idx, :].view(*self.patch_size)
-            target_channel.append(target_patch[ch_idx, :])
-            pred_channel.append(pred_patch[ch_idx, :])
-            masked_channel.append(target_patch[ch_idx, :] * (1-mask[0, patch_idx]))
-        target_channel = torch.cat(target_channel)
-        pred_channel = torch.cat(pred_channel)
-        masked_channel = torch.cat(masked_channel)
-        mask_channel = masked_channel == 0
-        
-
-
-      
-        fig, ax = plt.subplots(4, figsize=(15, 5))
-        ax[0].plot(target_channel.cpu().float()[:1000])
-        ax[0].set_title("target")
-        ax[1].plot(pred_channel.cpu().float().detach().numpy()[:1000])
-        ax[1].set_title("reconstruction")
-        ax[2].plot(masked_channel.cpu().float()[:1000])
-        ax[2].set_title("masked")
-        ax[3].plot(mask_channel.cpu().float()[:1000])
-        ax[3].set_title("mask")
-        fig.tight_layout()
-        wandb.log({"signals_{}".format(split): fig})
-
-    def visualize_flattened(self, mask, target, pred, split="train"): 
-        inverted_mask = 1 - mask
-        expanded_mask = inverted_mask[0].unsqueeze(-1)
-        masked_target = target[0] * expanded_mask
-
-
-        show_rate = int((masked_target.reshape(-1).shape[0] * 0.1 ) // 1)
-
-        reshaped_mask = expanded_mask.expand_as(target).float()[:show_rate].cpu()
-        flattened_mask = reshaped_mask.reshape(-1)[:show_rate].cpu()
-        flattened_masked_target = masked_target.view(-1)[:show_rate].cpu()
-        flattened_target = target[0].view(-1)[:show_rate].cpu()
-        flattened_pred = pred[0].view(-1)[:show_rate].cpu()
-
-        
-        fig, ax = plt.subplots(4, figsize=(15, 5))
-        ax[0].plot([i for i in range(flattened_target.shape[-1])], flattened_target.float())
-        ax[0].set_title("target")
-        ax[1].plot([i for i in range(flattened_masked_target.shape[-1])], flattened_masked_target.float())
-        ax[1].set_title("masked target")
-        ax[2].plot([i for i in range(flattened_mask.shape[-1])], flattened_mask.float())
-        ax[2].set_title("mask")
-        ax[3].plot([i for i in range(flattened_pred.shape[-1])], flattened_pred.float().detach().numpy())
-        ax[3].set_title("prediction")
-        wandb.log({"signals_{}".format(split): fig})
-
