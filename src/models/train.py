@@ -33,7 +33,7 @@ def get_args_parser():
                         help='embedding dimension of the encoder')
     parser.add_argument('--depth', default=3, type=int, 
                         help='the number of blocks of the encoder')
-    parser.add_argument('--num_heads', default=4, type=int, 
+    parser.add_argument('--num_heads', default=6, type=int, 
                         help='the number of attention heads of the encoder')
     parser.add_argument('--decoder_embed_dim', default=256, type=int, 
                         help='the embedding dimension of the decoder')
