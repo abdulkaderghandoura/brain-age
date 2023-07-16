@@ -9,6 +9,7 @@ import wandb
 from functools import partial
 import sys
 sys.path.append('../utils/')
+import copy
 from transforms import channelwide_norm, channelwise_norm, _clamp, _randomcrop, _compose, amplitude_flip, channels_dropout, time_masking, gaussian_noise
 from dataset import EEGDataset
 from mae import MaskedAutoencoderViT
@@ -22,11 +23,13 @@ from mae_finetuner import VisionTransformer
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE training', add_help=False)
+    
     parser.add_argument('--experiment_name', default='downstream_task')
     
     parser.add_argument('--batch_size', default=128, type=int,
                         help='Batch size')
-    parser.add_argument('--epochs', default=500, type=int)
+    parser.add_argument('--epochs', default=[80, 150], type=int, nargs='+', 
+                        help='Maximum number of epochs for linear probing and finetuning, respectively')
 
     parser.add_argument('--train_dataset', default=['bap'], type=list, nargs='+', 
                         help='dataset for training eg. bap, hbn, lemon')
@@ -97,18 +100,16 @@ def get_args_parser():
     parser.add_argument('--overfit_batches', default=1.0, type=float, 
                         help='to debug model on a fraction of batches')
     
-    parser.add_argument('--lr_mae', default=2.5e-4, type=float, 
-                        help='learning rate to train the masked autoencoder with')    
-    parser.add_argument('--lr_regressor', default=2.5e-4, type=float, 
-                        help='learning rate to train the regression head with')
-    
+    parser.add_argument('--lr', default=[1e-2, 1e-4], type=float, nargs='+', 
+                        help='learning rates for linear probing and finetuning, respectively')
+
     parser.add_argument('--artifact_id', default='h4vidwgf:v210', type=str, 
                         help='name and version of the model artifact to be finetuned') # for lemon: 0q3jg1cd:v0
     
     parser.add_argument('--reinitialize_weights', default=False, type=bool, 
                         help='reinitialize the weights randomly as a control')
-    parser.add_argument('--finetune_mode', default="linear_probe", type=str, 
-                        help='select mode to fine tune different parts of the architecture: linear_probe, finetune_encoder')
+    parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+',
+                        help='select mode to fine tune: linear_probe, finetune_encoder')
     parser.add_argument('--augment_data', default=False, type=bool, 
                             help='augment the training dataset')
 
@@ -130,27 +131,16 @@ def main(args):
     np.random.seed(seed)
 
     #size of the input = # of seconds * sampling frequency 
-    def get_encoder_checksum(encoder):
-        checksum = 0
-        for params in encoder.parameters():
-            checksum += params.sum()
-        return checksum
-
-
-
-    if args.reinitialize_weights:
-        wandb.login()
-        pass
-    else:
-        wandb.login()
-        run = wandb.init()
-        artifact_wandb_path = 'brain-age/brain-age/model-' + args.artifact_id
-        artifact = run.use_artifact(artifact_wandb_path, type='model')
-        artifact_path = pathlib.Path(artifact.download())
-        ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
-        checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
-        checkpoint_model = checkpoint['state_dict']
-        run.finish()
+    
+    wandb.login()
+    run = wandb.init()
+    artifact_wandb_path = 'brain-age/brain-age/model-' + args.artifact_id
+    artifact = run.use_artifact(artifact_wandb_path, type='model')
+    artifact_path = pathlib.Path(artifact.download())
+    ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
+    checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
+    checkpoint_model = checkpoint['state_dict']
+    run.finish()
     
     if args.standardization == "channelwise":
         norm = channelwise_norm
@@ -184,15 +174,28 @@ def main(args):
                                 num_workers=args.num_workers, 
                                 pin_memory=True, 
                                 shuffle=True)
-    
-    for mode, lr, epochs in zip(args.mode, args.lr, args.epochs):
+    print(f"\n===============================\n")
+    print(args.mode, args.lr, args.epochs)
+    print(f"\n===============================\n")
 
+    for mode, lr, epochs in zip(args.mode, args.lr, args.epochs):
+        
         wandb.login()
-        logger = pl.loggers.WandbLogger(project="brain-age", name="f{args.experiment_name}_{mode}_{args.artifact_id}", 
+        logger = pl.loggers.WandbLogger(project="brain-age", name=f"{args.experiment_name}_{mode}_{args.artifact_id}", 
                                         save_dir="wandb/", log_model=False)
-    
+        
+        print(f"\n===============================\n")
+        print("mode", mode)
+        print("epochs", epochs)
+        print("lr", lr)
+        print(f"\n===============================\n")
+
         lr_monitor = LearningRateMonitor(logging_interval='epoch')
-        linear_probe_model = VisionTransformer(state_dict=checkpoint_model, \
+        
+        if "finetune" in mode:
+            head = copy.deepcopy(model.head)
+
+        model = VisionTransformer(state_dict=checkpoint_model, \
                                             img_size=(63, args.input_time * 100), \
                                             patch_size=(1, 100), \
                                             in_chans=1, 
@@ -202,26 +205,29 @@ def main(args):
                                             mlp_ratio=args.mlp_ratio, 
                                             norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
                                             mode=mode,
-                                            max_epochs=epochs
+                                            max_epochs=epochs,
                                             lr=lr)
+        if "finetune" in mode:
+            model.head = head
 
-        print("model checksum of the trained age regressor", 
-                get_encoder_checksum(linear_probe_model.head))      
         trainer = pl.Trainer(
                             deterministic=True, # to ensure reproducibility 
                             devices=[0], 
                             callbacks=[lr_monitor,                         
                             ], 
                             check_val_every_n_epoch=1,
-                            max_epochs=80, 
+                            max_epochs=epochs, 
                             accelerator="gpu", 
                             logger=logger,
                             precision="bf16-mixed", 
                             gradient_clip_val=1
                             )
+        print(f"\n===============================\n")
         print(f"Training with mode: {mode}")
+        print(f"\n===============================\n")
+
         trainer.fit(
-            model=linear_probe_model, 
+            model=model, 
             train_dataloaders=train_dataloader, 
             val_dataloaders=val_dataloader
             )
