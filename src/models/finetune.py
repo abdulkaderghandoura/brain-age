@@ -109,7 +109,9 @@ def get_args_parser():
                         help='reinitialize the weights randomly as a control')
     parser.add_argument('--finetune_mode', default="linear_probe", type=str, 
                         help='select mode to fine tune different parts of the architecture: linear_probe, finetune_encoder')
-    
+    parser.add_argument('--augment_data', default=False, type=bool, 
+                            help='augment the training dataset')
+
     return parser
     
 
@@ -148,44 +150,26 @@ def main(args):
         ckpt_path = list(artifact_path.rglob("*.ckpt"))[0]
         checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
         checkpoint_model = checkpoint['state_dict']
-
-        # from mae import interpolate_pos_embed
-        # interpolate position embedding
-        # interpolate_pos_embed(model, checkpoint_model)
-        # msg = model.load_state_dict(checkpoint_model, strict=False)
-        # print("------------->", msg)
         run.finish()
     
     if args.standardization == "channelwise":
         norm = channelwise_norm
     elif args.standardization == "channelwide":
-        norm = channelwide_norm 
+        norm = channelwide_norm
+
     randomcrop = partial(_randomcrop, seq_len=args.crop_len)
     clamp = partial(_clamp, dev_val=args.clamp_val)
+    transforms_train = [randomcrop, norm, clamp]
+    transforms_val = [randomcrop, norm, clamp]
 
+    if args.augment_data:
+        rand_amplitude_flip = partial(amplitude_flip, prob=args.p_amplitude_flip)
+        rand_channels_dropout = partial(channels_dropout, max_channels=args.max_channels_to_dropout, prob=args.p_channels_dropout)
+        rand_gaussian_noise = partial(gaussian_noise, prob=args.p_gaussian_noise)
+        transforms_train += [rand_amplitude_flip, rand_channels_dropout, rand_gaussian_noise]
 
-    rand_amplitude_flip = partial(amplitude_flip, prob=args.p_amplitude_flip)
-    rand_channels_dropout = partial(channels_dropout, max_channels=args.max_channels_to_dropout, prob=args.p_channels_dropout)
-    rand_time_masking = partial(time_masking, max_mask_size=args.max_mask_size, prob=args.p_time_masking)
-    rand_gaussian_noise = partial(gaussian_noise, prob=args.p_gaussian_noise)
-
-
-    composed_transforms_train = partial(_compose, transforms=[
-                                                        randomcrop, 
-                                                        norm, 
-                                                        clamp,
-                                                        # rand_amplitude_flip,
-                                                        # rand_channels_dropout,
-                                                        # rand_time_masking,
-                                                        # rand_gaussian_noise
-                                                        ])
-    
-
-    composed_transforms_val = partial(_compose, transforms=[
-                                                        randomcrop, 
-                                                        norm, 
-                                                        clamp
-                                                        ])
+    composed_transforms_train = partial(_compose, transforms=transforms_train)
+    composed_transforms_val = partial(_compose, transforms=transforms_val)
 
     train_dataset = EEGDataset(datasets_path="/data0/practical-sose23/brain-age/data/", dataset_names=['bap'], splits=['train'], d_version="v3.0", transforms=composed_transforms_train, oversample=True)
     train_dataloader = DataLoader(train_dataset, 
@@ -205,16 +189,6 @@ def main(args):
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name+"_"+args.artifact_id, 
                                     save_dir="wandb/", log_model=False)
     
-    # early_stop_callback = EarlyStopping(monitor="train_loss", min_delta=1e-7, patience=3, verbose=False, mode="min")
-
-    # checkpoint_callback = ModelCheckpoint(
-    #     monitor='val_loss',  # Metric to monitor for saving the best model
-    #     filename='best_model',  # Filename pattern for saved models
-    #     save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
-    #     mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
-    #     dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
-    #     save_last=True
-    # )
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
     linear_probe_model = VisionTransformer(state_dict=checkpoint_model, \
                                         img_size=(63, args.input_time * 100), \
