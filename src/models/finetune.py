@@ -30,7 +30,7 @@ def get_args_parser():
     parser.add_argument('--artifact_id', default='h4vidwgf:v210', type=str, 
                             help='name and version of the model artifact to be finetuned')
     parser.add_argument('--lr', default=[1e-2, 1e-4], type=float, nargs='+', 
-                            help='learning rates for linear probing and finetuning, respectively')
+                            help='learning rates for each mode, e.g. linear probing and finetuning')
     parser.add_argument('--mode', default=["linear_probe", "finetune_encoder"] , type=str, nargs='+', help=('Select mode for fine tuning. Can be one of: ',
                         '[linear_probe], [linear_probe, finetune_encoder], [linear_probe, finetune_final_layer], [random_initialization]'))
     parser.add_argument('--augment_data', default=False, type=bool, 
