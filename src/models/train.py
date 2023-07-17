@@ -208,7 +208,7 @@ def main(args):
                 filename='best_model',  # Filename pattern for saved models
                 save_top_k=1,  # Number of best models to save (set to 1 for the best model only)
                 mode='min',  # Mode of the monitored metric (minimize val_loss in this case)
-                dirpath='../../models/checkpoints/{}'.format(args.experiment_name),
+                dirpath='../../checkpoints/{}'.format(args.experiment_name),
                 save_last=True
             )
         callbacks.append(checkpoint_callback)
