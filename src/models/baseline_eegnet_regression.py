@@ -122,7 +122,7 @@ def main(args):
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
                                     save_dir="/data0/practical-sose23/brain-age", log_model=False)
     
-    early_stop_callback = EarlyStopping(monitor="validation loss", min_delta=0.00, patience=200, verbose=False, mode="min")
+    early_stop_callback = EarlyStopping(monitor="validation loss", min_delta=0.00, patience=25, verbose=False, mode="min")
 
     trainer = pl.Trainer(
         callbacks=[early_stop_callback], 

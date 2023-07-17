@@ -5,6 +5,17 @@ from pathlib import Path
 
 class EEGDataset(Dataset):
     def __init__(self, datasets_path, dataset_names, splits, d_version, transforms, oversample=False, labelcenter=True):
+        """Initializes the EEGDataset.
+
+        Args:
+            datasets_path (str or Path): Path to the datasets directory.
+            dataset_names (list): List of dataset names.
+            splits (dict): Dictionary containing the train, validation, and test splits for each dataset.
+            d_version (str): Version of the preprocessing.
+            transforms (list): List of data transformations to apply.
+            oversample (bool, optional): Whether to perform oversampling. Defaults to False.
+            labelcenter (bool, optional): Whether to center the labels. Defaults to True.
+        """
         datasets_path = Path(datasets_path).resolve()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.transforms = transforms
