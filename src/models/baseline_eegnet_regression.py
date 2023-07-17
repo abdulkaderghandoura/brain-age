@@ -5,8 +5,10 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from functools import partial
-import lightning.pytorch as pl
-from lightning.pytorch.callbacks import EarlyStopping
+# import lightning.pytorch as pl
+# from lightning.pytorch.callbacks import EarlyStopping
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import torch
 from torcheeg.models import EEGNet
 from torch.utils.data import DataLoader
@@ -75,7 +77,7 @@ class BrainAgeModel(pl.LightningModule):
 def main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-    torch.set_float32_matmul_precision('medium')
+    # torch.set_float32_matmul_precision('medium')
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -109,7 +111,6 @@ def main(args):
     labelcenter = partial(_labelcenter, mean_age=round(df_subj["Age"].mean(), 3))
     labelbin = partial(_labelbin, y_lower=mean_age)
     composed_transforms = partial(_compose, transforms=[randomcrop, channelwise_norm, clamp])
-    # target_transforms = partial(_compose, transforms=[labelcenter, totensor])
 
     train_dataset = EEGDataset(args.datasets_path, [args.dataset_name], ['train'], d_version=args.d_version, transforms=composed_transforms, oversample=False)
     val_dataset = EEGDataset(args.datasets_path, [args.dataset_name], ['val'], d_version=args.d_version, transforms=composed_transforms)
@@ -122,13 +123,13 @@ def main(args):
     logger = pl.loggers.WandbLogger(project="brain-age", name=args.experiment_name, 
                                     save_dir="/data0/practical-sose23/brain-age", log_model=False)
     
-    early_stop_callback = EarlyStopping(monitor="validation loss", min_delta=0.00, patience=25, verbose=False, mode="min")
+    early_stop_callback = EarlyStopping(monitor="validation loss", min_delta=0.00, patience=50, verbose=False, mode="min")
 
     trainer = pl.Trainer(
         callbacks=[early_stop_callback], 
         max_epochs=500, 
         accelerator="gpu",
-        precision="bf16-mixed",
+        precision="bf16",
         logger=logger)
 
     trainer.fit(model, train_dataloader, val_dataloader)
@@ -169,5 +170,5 @@ if __name__ == "__main__":
     args.chunk_size *= args.sfreq
     args.kernel_1 = args.sfreq // args.kernel_1
     args.kernel_2 = args.sfreq // args.kernel_2
-    # print(args.kernel_1, args.kernel_2)
+
     main(args)

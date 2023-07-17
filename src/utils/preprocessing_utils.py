@@ -124,6 +124,11 @@ def apply_in_order(eeg_obj, preprocessing_steps, filters, sfreq):
     Returns:
         object: The preprocessed EEG object.
     """
+    # Applying a band-pass filter in one step might be better
+    if 'lpf' in preprocessing_steps and 'hpf' in preprocessing_steps:
+        eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=filters['lpf'], h_trans_bandwidth=5, verbose=False)
+        preprocessing_steps = [x for x in preprocessing_steps if x not in ['lpf', 'hpf']]
+    
     for preprocessing_step in preprocessing_steps:
         if preprocessing_step == 'nf':
             assert 'nf' in filters
@@ -138,7 +143,7 @@ def apply_in_order(eeg_obj, preprocessing_steps, filters, sfreq):
         if preprocessing_step == 'hpf':
             assert 'hpf' in filters
             # Apply a high-pass filter to the raw data
-            eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=None, h_trans_bandwidth=5, verbose=False)
+            eeg_obj = eeg_obj.filter(l_freq=filters['hpf'], h_freq=None, verbose=False)
 
         if preprocessing_step == 'sfreq':
             assert sfreq is not None
@@ -294,7 +299,7 @@ def split_data(args, split_ratios):
         n_train = n_files - n_val - n_test
         assert n_train + n_val + n_test == n_files
 
-        # Shuffle the list of paths
+        # Shuffle the list of paths (Subjects)
         random.shuffle(file_paths)
 
         # Split the paths into train, val, and test sets

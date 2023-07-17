@@ -40,6 +40,7 @@ class EEGDataset(Dataset):
             for split in splits:
                 # print('**************', age_dict[dataset_names[0]][split])
                 mean_age = np.round(np.mean(age_dict[dataset_names[0]][split]), 3)
+                print('++++++++++++++++', mean_age)
                 age_dict[dataset_names[0]][split] -= mean_age
 
         if oversample and 'train' in split and len(dataset_names) > 1: 
