@@ -90,3 +90,8 @@ def add_labels_to_splits(args):
                 output_df = pd.DataFrame(data_pairs, columns=['Subject ID','Age'])
                 metadata_output_path = dataset_path / 'preprocessed' / args.d_version / f'{dataset_name}_{split}.csv'
                 output_df.to_csv(metadata_output_path, index=False)
+
+def get_midpoint(age_range):
+    # Extract age from a range
+    low, high = age_range.split("-")
+    return (int(high)+int(low))/2 

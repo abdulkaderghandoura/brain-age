@@ -1,4 +1,5 @@
 import argparse
+from utils import get_midpoint
 from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
@@ -63,7 +64,23 @@ def organize_metadata(datasets_path, dataset_name):
         df.to_csv(output_metadata_path, index=False)
 
     elif dataset_name == 'lemon':
-        pass # TODO
+        # Read data from Excel sheets
+        input_metadata_dir = datasets_path / 'lemon' / 'Behavioural_Data_MPILMBB_LEMON'
+        df = pd.read_csv(input_metadata_dir / 'META_File_IDs_Age_Gender_Education_Drug_Smoke_SKID_LEMON.csv')
+        df_names = pd.read_csv(input_metadata_dir.parent / 'name_match.csv')
+
+        # Update subject names to match file names
+        namemap = {old:new for old, new in zip(df_names['INDI_ID'], df_names['Initial_ID'])}
+        df['Subject ID'] = df['Unnamed: 0'].apply(lambda x:namemap[x].split('-')[-1])
+        # Extract the midpoint of the age range as the target
+        df['Age'] = df['Age'].apply(get_midpoint)
+        # Convert sex column to categories
+        df['Sex'] = df['Gender_ 1=female_2=male'].apply(lambda x: 'f' if x==1 else 'm')
+        # Extract only the columns of interest from the meta-data
+        df = df[['Subject ID','Age', 'Sex']]
+
+        output_metadata_path = datasets_path / 'lemon' / 'lemon-metadata.csv'
+        df.to_csv(output_metadata_path, index=False)
 
 
 def main(args):
