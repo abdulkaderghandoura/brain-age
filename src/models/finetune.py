@@ -61,14 +61,12 @@ def get_args_parser():
                         help='normalize the output pixels before computing the loss')
     
     # dataset parameters 
-    parser.add_argument('--dataset_path', default='/data0/practical-sose23/brain-age/data', type=str, 
+    parser.add_argument('--datasets_path', default='/data0/practical-sose23/brain-age/data', type=str, 
                         help='path that contains all the datasets')
     parser.add_argument('--dataset_version', default='v3.0', type=str, 
                         help='version of the preprocessed data')
-    parser.add_argument('--train_dataset', default=['bap'], type=str, nargs='+', 
+    parser.add_argument('--dataset', default=['bap'], type=str, nargs='+', 
                         help='dataset for training. One of bap, hbn, lemon')
-    parser.add_argument('--val_dataset', default=['bap'], type=str, nargs='+', 
-                        help='dataset for validating. One of bap, hbn, lemon')
     parser.add_argument('--regressor_train_dataset', default=['bap'], type=str, nargs='+', 
                         help='dataset for training the regressor, only effectice if mae_age is true\
                         eg. bap, hbn, lemon')
@@ -166,8 +164,8 @@ def main(args):
     composed_transforms_val = partial(_compose, transforms=transforms_val)
 
     # Initialize the training and validation dataloader
-    train_dataset = EEGDataset(datasets_path=args.dataset_path, 
-                                dataset_names=args.train_dataset, 
+    train_dataset = EEGDataset(datasets_path=args.datasets_path, 
+                                dataset_names=args.dataset, 
                                 splits=['train'], 
                                 d_version=args.dataset_version, 
                                 transforms=composed_transforms_train)
@@ -176,8 +174,8 @@ def main(args):
                                 num_workers=args.num_workers, 
                                 pin_memory=True)
 
-    val_dataset = EEGDataset(datasets_path=args.dataset_path, 
-                                dataset_names=args.val_dataset, 
+    val_dataset = EEGDataset(datasets_path=args.datasets_path, 
+                                dataset_names=args.dataset, 
                                 splits=['val'], 
                                 d_version=args.dataset_version, 
                                 transforms=composed_transforms_val, 
