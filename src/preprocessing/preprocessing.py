@@ -1,4 +1,6 @@
-# Import necessary modules
+# Note: the "numexpr.utils - INFO" messages came from importing pandas in src/utils
+# ---------------------------------------------------------------------------------
+
 import os
 import mne
 import pickle
@@ -10,13 +12,27 @@ from pathlib import Path
 
 import sys
 sys.path.append('../utils/')
-from preprocessing_utils import get_hbn_formatter, apply_in_order, split_data, delete_partitioning_dirs
-# from utils import get_hbn_formatter, apply_in_order
+from preprocessing_utils import get_hbn_formatter, apply_in_order, split_data
+from preprocessing_utils import delete_partitioning_dirs, pickle_to_np, delete_files_with_extension
 from utils import Timer, add_labels_to_splits
 
 
 def preprocess_file(args, file_path: str, new_file_path: str, dataset_name: str, filters: dict, hbn_formatter):
-    
+    """Preprocesses one EEG file and save the preprocessed data to the new file path.
+
+    Args:
+        args (object): The arguments containing the preprocessing information.
+        file_path (str): The path to the input file.
+        new_file_path (str): The path to save the preprocessed data.
+        dataset_name (str): The name of the dataset.
+        filters (dict): A dictionary of filters to apply during preprocessing.
+        hbn_formatter (HBNFormatter): The formatter for HBN data.
+
+
+    Returns:
+        Path: The output file path only in case of an issue, None otherwise.
+    """
+    montage = mne.channels.make_standard_montage("standard_1020")
     eeg_obj = None
     
     if dataset_name == 'bap':
@@ -26,9 +42,10 @@ def preprocess_file(args, file_path: str, new_file_path: str, dataset_name: str,
         eeg_obj = eeg_obj.drop_channels(['LE', 'RE'])
         # Set channel types for all channels to 'eeg'
         eeg_obj.set_channel_types({channel: 'eeg' for channel in eeg_obj.ch_names})
+        eeg_obj = eeg_obj.set_montage(montage)
 
         preprocessing_steps = [x for x in args.preprocessing_steps if x != 'bad_ch']
-        eeg_obj = apply_in_order(eeg_obj, args, filters)
+        eeg_obj = apply_in_order(eeg_obj, preprocessing_steps, filters, args.sfreq)
         
     
     elif dataset_name == 'lemon':
@@ -41,17 +58,17 @@ def preprocess_file(args, file_path: str, new_file_path: str, dataset_name: str,
         eeg_obj = eeg_obj.drop_channels(['VEOG'])
         # Set channel types for all channels to 'eeg'
         eeg_obj.set_channel_types({channel: 'eeg' for channel in eeg_obj.ch_names})
-
-        # TODO: Do we need to set the montage?
-        montage = mne.channels.make_standard_montage("standard_1020")
         eeg_obj = eeg_obj.set_montage(montage)
 
         preprocessing_steps = [x for x in args.preprocessing_steps if x != 'bad_ch']
-        eeg_obj = apply_in_order(eeg_obj, args, filters)
+        eeg_obj = apply_in_order(eeg_obj, preprocessing_steps, filters, args.sfreq)
 
     elif dataset_name == 'hbn':
         assert 'bad_ch' in args.preprocessing_steps
-        eeg_obj = hbn_formatter(file_path, args.preprocessing_steps, filters, args.sfreq)
+        try:
+            eeg_obj = hbn_formatter(file_path, args.preprocessing_steps, filters, args.sfreq)
+        except Exception:
+            return new_file_path
 
     for ref_item in args.references:
         channel_names = eeg_obj.ch_names
@@ -70,6 +87,12 @@ def preprocess_file(args, file_path: str, new_file_path: str, dataset_name: str,
 
 
 def preprocessed_data(args, filters):
+    """Generates preprocessed data of the given datasets based on the specified settings.
+
+    Args:
+        args (object): The arguments containing the preprocessing information.
+        filters (dict): A dictionary of filters to apply during preprocessing.
+    """
     # Disable RuntimeWarning messages
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -106,15 +129,16 @@ def preprocessed_data(args, filters):
     unsaved_files = list()
     # Create a tqdm progress bar
     p_bar = tqdm(total=len(g_file_paths))
+    # Set the number of worker processes (adjust according to your system)
+    num_processes = min(15, multiprocessing.cpu_count())
     # Create a lock object to synchronize access to shared resources
     lock = multiprocessing.Lock()
-    # Set the number of worker processes
-    num_processes = 15
 
     with multiprocessing.Pool(processes=num_processes) as pool:
         for g_file_path in g_file_paths:
             file_path, new_file_path, dataset_name = g_file_path
-            result = pool.apply_async(preprocess_file, args=(args, file_path, new_file_path, dataset_name, filters, hbn_formatter))
+            result = pool.apply_async(preprocess_file, args=(args, file_path, new_file_path, 
+                                                             dataset_name, filters, hbn_formatter))
     
             # Wait for the task to complete
             result.wait()
@@ -131,6 +155,7 @@ def preprocessed_data(args, filters):
         pool.join()
         p_bar.close()
     
+    # Report the number of problematic files and thir paths 
     print(f"Couldn't save the following {len(unsaved_files)} files:")
     for unsaved_file in unsaved_files:
         print(unsaved_file)
@@ -139,6 +164,13 @@ def preprocessed_data(args, filters):
 def main(args):
     timer = Timer()
     timer.start()
+
+    if args.delete_ext is not None:
+        assert len(args.delete_ext) == 2 and Path(args.delete_ext[0]).is_dir()
+        delete_files_with_extension(args.delete_ext[0], args.delete_ext[1])
+    
+    if args.delete_epochs:
+        delete_partitioning_dirs(args)
 
     filters = dict()
     for filter_name, filter_value in args.filter:
@@ -149,13 +181,14 @@ def main(args):
     print('Started filtering data')
     preprocessed_data(args, filters)
 
-    # delete_partitioning_dirs(args)
-
     split_ratios = {}
     for split in args.split:
         dataset_name = split[0]
         train_ratio, val_ratio, test_ratio = map(int, split[1:])
         split_ratios[dataset_name] = {'train': train_ratio, 'val': val_ratio, 'test': test_ratio}
+
+    if args.eeg_partition_mode == 'numpy':
+        pickle_to_np(args)
 
     print('Started splitting data')
     split_data(args, split_ratios)
@@ -170,9 +203,9 @@ if __name__ == "__main__":
     # Creating an argument parser object
     parser = argparse.ArgumentParser(description="Data Preprocessing Script")
     # List of all datasets can be preprocessed
-    dataset_names = ['bap', 'hbn', 'lemon']
+    dataset_names = ['bap', 'lemon', 'hbn']
     # Default order of preprocessing steps
-    pre_steps = ['lpf', 'sfreq', 'bad_ch', 'hpf']
+    pre_steps = ['lpf', 'hpf', 'sfreq', 'bad_ch']
 
     # Adding command line arguments
     parser.add_argument("--datasets_path", type=str, default='/data0/practical-sose23/brain-age/data/', 
@@ -184,7 +217,7 @@ if __name__ == "__main__":
     parser.add_argument("--d_version", type=str, required=True, 
                         help="Directory name of the current version of preprocessing")
     
-    parser.add_argument("--sfreq", type=int, required=True, 
+    parser.add_argument("--sfreq", type=int, default=100, 
                         help="Sampling frequency")
     
     parser.add_argument('--filter', nargs='+', action='append', required=True,
@@ -200,13 +233,21 @@ if __name__ == "__main__":
                         help='Specify dataset and split ratios, e.g., bap 70 15 15')
     
     parser.add_argument("--window_in_sec", type=int, default=30, 
-                        help='##############')
+                        help='Window length in seconds for creating fixed lenth epochs')
     
     parser.add_argument("--stride_in_sec", type=int, default=15, 
-                        help='##############')
+                        help='Stride length in seconds for creating fixed lenth epochs')
     
     parser.add_argument("--eeg_partition_mode", type=str, default='mne', choices=['mne', 'numpy'],
-                        help='##############')
+                        help='The mode "mne" is to use a built-in function that drops bad epochs, \
+                            resulting in less EEG data compared with the general "numpy" mode')
+    
+    parser.add_argument("--delete_epochs", type=str, action='store_true',
+                        help='Deletes the directories that contains the fixed lengh epochs \
+                              (NumPy parts of EEG) for the given dataset names and preprocessing version')
+    
+    parser.add_argument("--delete_ext", type=str, nargs='+', 
+                        help='Delete files of the given extension, e.g., /path/to/dir/ pickle')
 
     args = parser.parse_args()
     main(args)
