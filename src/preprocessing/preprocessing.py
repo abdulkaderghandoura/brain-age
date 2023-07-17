@@ -156,9 +156,9 @@ def preprocessed_data(args, filters):
         p_bar.close()
     
     # Report the number of problematic files and thir paths 
-    print(f"Couldn't save the following {len(unsaved_files)} files:")
     for unsaved_file in unsaved_files:
         print(unsaved_file)
+    print(f"Couldn't save the following {len(unsaved_files)} files:")
 
 
 def main(args):
@@ -166,10 +166,12 @@ def main(args):
     timer.start()
 
     if args.delete_ext is not None:
+        print(f"Started deleting '.{args.delete_ext[1]}' extensions from {args.delete_ext[0]}")
         assert len(args.delete_ext) == 2 and Path(args.delete_ext[0]).is_dir()
         delete_files_with_extension(args.delete_ext[0], args.delete_ext[1])
     
     if args.delete_epochs:
+        print('Started deleting epochs')
         delete_partitioning_dirs(args)
 
     filters = dict()
@@ -242,7 +244,7 @@ if __name__ == "__main__":
                         help='The mode "mne" is to use a built-in function that drops bad epochs, \
                             resulting in less EEG data compared with the general "numpy" mode')
     
-    parser.add_argument("--delete_epochs", type=str, action='store_true',
+    parser.add_argument("--delete_epochs", action='store_true',
                         help='Deletes the directories that contains the fixed lengh epochs \
                               (NumPy parts of EEG) for the given dataset names and preprocessing version')
     

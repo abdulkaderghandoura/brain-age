@@ -154,11 +154,11 @@ def pickle_to_np(args):
         args (object): The arguments containing the preprocessing information.
     """
     datasets_path = Path(args.datasets_path).resolve()
-    pickle_file_paths = None
+    pickle_file_paths = list()
 
     for dataset_name in args.dataset_names:
         input_data_path = datasets_path / dataset_name / 'preprocessed' / args.d_version
-        pickle_file_paths = list(input_data_path.rglob('*.pickle'))
+        pickle_file_paths.extend(list(input_data_path.rglob('*.pickle')))
 
     for file_path in tqdm(pickle_file_paths):
         with open(file_path, mode='rb') as in_file:
