@@ -131,9 +131,11 @@ Finally, we assume the following data directory structure:
 
 The dataset-metadata.csv files contain the Subject ID, Age, and Sex columns. To create these files for the three datasets mentioned above, you first need to ensure that the corresponding original metadata for each of them is placed as follows:
 
-**Target** metadat input file path: `path/to/data/bap/raw/clinical_data_updated_xxxx-xx-xx.ods`
+**Target** metadata input file path: `path/to/data/bap/raw/clinical_data_updated_xxxx-xx-xx.ods`
+
 **HBN** metadata input directory: `path/to/data/hbn/hbn-metadata/`
-**LEMON**  `path/to/data/lemon/Behavioural_Data_MPILMBB_LEMON`
+
+**LEMON** metadata input directory: `path/to/data/lemon/Behavioural_Data_MPILMBB_LEMON`
 
 Afterwards, change your directory to `src/utils`, then run the command:
 
