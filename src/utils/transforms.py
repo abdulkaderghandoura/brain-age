@@ -1,5 +1,5 @@
-import torch
 import numpy as np
+import torch
 
 def _compose(x, transforms):
     for transform in transforms:
@@ -58,7 +58,7 @@ def channels_dropout(x, prob, max_channels):
     return x_augmented
 
 
-############################### TODO: Thomas said this function returns None type!!!!
+##### Fixed? TODO: Thomas said this function returns None type!!!!
 def time_masking(x, prob, max_mask_size, mode='same_segment'):
     x_augmented = x.clone()
     if torch.rand(1) < prob:
@@ -80,7 +80,7 @@ def time_masking(x, prob, max_mask_size, mode='same_segment'):
                 assert 0 <= start < end <= x.size(1)
                 x_augmented[c, start:end] = 0
                 # x_augmented[c, start:end] = float(torch.FloatTensor(1).uniform_(0.0001, 0.0009))
-        return x_augmented
+    return x_augmented
 
 def amplitude_flip(x, prob):
     if torch.rand(1) < prob:

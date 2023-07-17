@@ -1,9 +1,15 @@
-import pandas as pd
-from tqdm import tqdm
-# from utils import get_dirs
 import argparse
+from pathlib import Path
+from tqdm import tqdm
+import pandas as pd
 
 def organize_metadata(datasets_path, dataset_name):
+    """Organizes metadata for the given dataset.
+
+    Args:
+        datasets_path (str or Path): The path to the datasets directory.
+        dataset_name (str): The name of the dataset to organize metadata for.
+    """
     datasets_path = Path(datasets_path).resolve()
     
     raw_dir_name = {'hbn': 'raw', 'bap': 'raw', 'lemon': 'LEMON_RAW'}
@@ -39,7 +45,7 @@ def organize_metadata(datasets_path, dataset_name):
 
     elif dataset_name == 'bap':        
         # Read data from Excel sheets
-        input_metadata_path = raw_dir_path / 'clinical_data_updated_2020-08-04.ods'
+        input_metadata_path = list(raw_dir_path.glob('*.ods'))[0]
         df1 = pd.read_excel(input_metadata_path, sheet_name='chronic_pain_patients', skiprows=1)
         df2 = pd.read_excel(input_metadata_path, sheet_name='healthy_controls')
 
@@ -74,7 +80,7 @@ if __name__ == "__main__":
     parser.add_argument("--datasets_path", type=str, default='/data0/practical-sose23/brain-age/data/', 
                         help="Path to the datasets directory")
     
-    parser.add_argument("--dataset_names", type=str, nargs='+', choices=dataset_names, required=True, 
+    parser.add_argument("--dataset_names", type=str, default=dataset_names, nargs='+', choices=dataset_names, 
                         help="List of dataset names")
 
     args = parser.parse_args()

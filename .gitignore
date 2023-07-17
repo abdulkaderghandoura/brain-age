@@ -1,8 +1,8 @@
-data/
-models/
-src/utils/__pycache__/
-src/models/__pycache__/
-drafts/ghandoura/__pycache__/
-drafts/elbaroudy/__pycache__/
-drafts/schwarz/__pycache__/
-drafts/ghandoura/.ipynb_checkpoints/
+/data/
+/models/
+/src/utils/__pycache__/
+/src/models/__pycache__/
+/drafts/ghandoura/__pycache__/
+/drafts/elbaroudy/__pycache__/
+/drafts/schwarz/__pycache__/
+/drafts/ghandoura/.ipynb_checkpoints/
