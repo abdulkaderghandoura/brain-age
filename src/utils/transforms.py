@@ -2,40 +2,120 @@ import numpy as np
 import torch
 
 def _compose(x, transforms):
+    """apply transforms in order. 
+
+    Args:
+        x (tensor): EEG data of shape (1, Channels, Time)
+        transforms (list): functions applied to the EEG data. Specified using partial.
+
+    Returns:
+        transformed x: transformed EEG data
+    """
     for transform in transforms:
         x = transform(x)
     return x
 
 def _randomcrop(x, seq_len):
+    """Crop a sequence at a random time sample within. 
+
+    Args:
+        x (tensor): EEG data of shape (1, Channels, Time)
+        seq_len (int): Length of the sequence to be cropped. Specified using partial.
+
+    Returns:
+        transformed x: cropped EEG data
+    """
     idx = torch.randint(low=0, high=x.shape[-1]-seq_len, size=(1,))
     return x[:, :, idx:idx+seq_len]
 
 def totensor(x):
+    """Convert a numpy array to a float tensor. 
+
+    Args:
+        x (tensor): EEG data of shape (1, Channels, Time)
+    Returns:
+        transformed x: EEG data as a float tensor
+    """
     return torch.tensor(x).float()
 
 def channelwide_norm(x, eps=1e-8):
+    """Standardize EEG data across channels. 
+    Args:
+        x (tensor): EEG data of shape (1, Channels, Time)
+        eps (float): Small value to prevent division by 0
+    Returns:
+        transformed x: normalized EEG data
+    """
     return (x - x.mean()) / (eps + x.std())
 
 def channelwise_norm(x, eps=1e-8):
+    """Standardize EEG data within channels. 
+    Args:
+        x (tensor): EEG data of shape (1, Channels, Time)
+        eps (float): Small value to prevent division by 0
+    Returns:
+        transformed x: normalized EEG data
+    """
     return (x - x.mean(-1, keepdims=True)) / (eps + x.std(-1, keepdims=True))
 
 def _clamp(x, dev_val):
-    """input: normalized"""
+    """Limit EEG data across channels to a range. 
+    Args:
+        x (tensor): EEG data of shape (1, Channels, Time)
+        dev_val (float): EEG data will be limited to (-dev_val, dev_val). Specified using partial.
+    Returns:
+        transformed x: clamped EEG data
+    """
     return torch.clamp(x, -dev_val, dev_val)
 
 def toimshape(x):
+    """Reshape EEG data to image format 
+    Args:
+        x (tensor): EEG data of shape (Channels, Time)
+    Returns:
+        transformed x: EEG data of shape (1, Channels, Time)
+    """
     return x.unsqueeze(0)
 
 def _labelcenter(y, mean_age):
+    """Subtract the mean age from age labels
+    Args:
+        y (tensor.float): age label
+        mean_age (tensor.float): mean age of the dataset. Specified using partial.
+    Returns:
+        transformed y: centered age label
+    """
     return y - mean_age
 
 def _labelnorm(y, mean_age, std_age, eps=1e-6):
+    """Subtract the mean age from age labels and divide the standard deviation
+    Args:
+        y (tensor.float): age label
+        mean_age (tensor.float): mean age of the dataset. Specified using partial.
+        std_age (tensor.float): standard deviation of age of the dataset. Specified using partial.
+    Returns:
+        transformed y: standardized age label
+    """
     return (y - mean_age) / torch.sqrt(std_age**2 + eps)
 
 def _labelbin(y, y_lower):
+    """Convert continuous labels to classes given a threshold
+    Args:
+        y (tensor.float): age label
+        y_lower (tensor.float): threshold age by which to separate classes
+    Returns:
+        transformed y: age class
+    """
     return int(y > y_lower)
 
 def _labelmultibin(y, y_lower):
+    """Convert continuous labels to classes given a threshold
+    Args:
+        y (tensor.float): age label
+        y_lower (tensor.float): multiple thresholds to separate classes. Specified using partial.
+    Returns:
+        transformed y: age classs
+    """
     return torch.where(y >= y_lower)[0].max()
 
 def gaussian_noise(x, prob, mean=0, std=1e-5):
