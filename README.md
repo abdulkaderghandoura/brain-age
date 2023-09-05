@@ -6,6 +6,10 @@ Contributors: Sama Elbaroudy, Abdulkader Ghandoura and Thomas Schwarz
 
 Supervised by Özgün Turgut
 
+## Poster
+
+![Poster](poster.jpg)
+
 ## Introduction 
 **Brain Age Prediction** is a regression method to estimate one's brain age. This brain age can be used as a biomarker for neurodevelopmental and neurodegenerative disorders.
 <!-- It can be used to find relationships between brain aging and various health outcomes -->
